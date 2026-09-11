@@ -1,0 +1,43 @@
+{
+  "name": "@sekai64-internal/modules",
+  "version": "0.8.0-rc.33",
+  "description": "Private Sekai64 optional renderer-module lifecycle and capability registry.",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@sekai64-internal/cameras": "0.8.0-rc.33",
+    "@sekai64-internal/renderer": "0.8.0-rc.33",
+    "@sekai64-internal/scene": "0.8.0-rc.33"
+  },
+  "license": "MIT",
+  "author": "Avelurs Tinio",
+  "keywords": [
+    "3d",
+    "renderer",
+    "modules",
+    "tree-shaking"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "private": true
+}

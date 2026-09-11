@@ -1,0 +1,452 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sekai64.dev/schemas/scene-v2.json",
+  "title": "Sekai64 Scene v2",
+  "type": "object",
+  "required": [
+    "version",
+    "scene"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri-reference"
+    },
+    "version": {
+      "const": 2
+    },
+    "variables": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean"
+        ]
+      }
+    },
+    "prefabs": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/object"
+      }
+    },
+    "scene": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "object",
+          "properties": {
+            "background": {
+              "$ref": "#/$defs/color"
+            }
+          },
+          "additionalProperties": false
+        },
+        "camera": {
+          "$ref": "#/$defs/camera"
+        },
+        "objects": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/$defs/object"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "vector3": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "positiveVector3": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      ],
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "color": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 4
+        }
+      ]
+    },
+    "camera": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "perspective"
+            },
+            "id": {
+              "type": "string"
+            },
+            "position": {
+              "$ref": "#/$defs/vector3"
+            },
+            "rotation": {
+              "$ref": "#/$defs/vector3"
+            },
+            "fieldOfView": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "exclusiveMaximum": 180
+            },
+            "near": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "far": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "orthographic"
+            },
+            "id": {
+              "type": "string"
+            },
+            "position": {
+              "$ref": "#/$defs/vector3"
+            },
+            "rotation": {
+              "$ref": "#/$defs/vector3"
+            },
+            "left": {
+              "type": "number"
+            },
+            "right": {
+              "type": "number"
+            },
+            "top": {
+              "type": "number"
+            },
+            "bottom": {
+              "type": "number"
+            },
+            "near": {
+              "type": "number"
+            },
+            "far": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "material": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "basic",
+            "standard"
+          ]
+        },
+        "baseColor": {
+          "$ref": "#/$defs/color"
+        },
+        "metallic": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "roughness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "emissive": {
+          "$ref": "#/$defs/color"
+        },
+        "emissiveIntensity": {
+          "type": "number",
+          "minimum": 0
+        },
+        "transparent": {
+          "type": "boolean"
+        },
+        "doubleSided": {
+          "type": "boolean"
+        },
+        "alphaMode": {
+          "enum": [
+            "opaque",
+            "mask",
+            "blend"
+          ]
+        },
+        "alphaCutoff": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "side": {
+          "enum": [
+            "front",
+            "back",
+            "double"
+          ]
+        },
+        "wireframe": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "interaction": {
+      "type": "object",
+      "required": [
+        "action"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": true
+      },
+      "additionalProperties": false
+    },
+    "opening": {
+      "type": "object",
+      "required": [
+        "type",
+        "wall",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "door",
+            "window",
+            "portal"
+          ]
+        },
+        "wall": {
+          "enum": [
+            "front",
+            "back",
+            "left",
+            "right"
+          ]
+        },
+        "position": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "bottom": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "object": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/$defs/vector3"
+        },
+        "rotation": {
+          "$ref": "#/$defs/vector3"
+        },
+        "scale": {
+          "$ref": "#/$defs/positiveVector3"
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/object"
+          }
+        },
+        "interactions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/interaction"
+          }
+        },
+        "size": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "minItems": 2,
+          "maxItems": 3
+        },
+        "material": {
+          "$ref": "#/$defs/material"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "overrides": {
+          "type": "object"
+        },
+        "color": {
+          "$ref": "#/$defs/color"
+        },
+        "intensity": {
+          "type": "number",
+          "minimum": 0
+        },
+        "direction": {
+          "$ref": "#/$defs/vector3"
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "depth": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "floors": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "floorHeight": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "wallThickness": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "openings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/opening"
+          }
+        },
+        "text": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "productId": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "radiusTop": {
+          "type": "number",
+          "minimum": 0
+        },
+        "radiusBottom": {
+          "type": "number",
+          "minimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "radialSegments": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "openEnded": {
+          "type": "boolean"
+        },
+        "decay": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

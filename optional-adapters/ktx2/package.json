@@ -1,0 +1,36 @@
+{
+  "name": "@blcklab/sekai64-ktx2",
+  "version": "0.1.0",
+  "description": "KTX2/Basis adapter bridge for Sekai64. Injects a host-provided transcoder without bundling a codec.",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "pack:dry": "npm pack --dry-run"
+  },
+  "peerDependencies": {
+    "@blcklab/sekai64": ">=0.8.0-rc.10 <0.9.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

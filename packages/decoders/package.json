@@ -1,0 +1,38 @@
+{
+  "name": "@sekai64-internal/decoders",
+  "version": "0.8.0-rc.33",
+  "description": "Private decoder adapter contracts assembled into the public Sekai64 package.",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "license": "MIT",
+  "author": "Avelurs Tinio",
+  "keywords": [
+    "decoder",
+    "draco",
+    "meshopt",
+    "ktx2"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "private": true
+}

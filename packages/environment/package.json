@@ -1,0 +1,45 @@
+{
+  "name": "@sekai64-internal/environment",
+  "version": "0.8.0-rc.33",
+  "description": "Private optional Sekai64 HDR environment, tone mapping, and ambient IBL module.",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@sekai64-internal/core": "0.8.0-rc.33",
+    "@sekai64-internal/lighting": "0.8.0-rc.33",
+    "@sekai64-internal/math": "0.8.0-rc.33",
+    "@sekai64-internal/modules": "0.8.0-rc.33",
+    "@sekai64-internal/scene": "0.8.0-rc.33"
+  },
+  "license": "MIT",
+  "author": "Avelurs Tinio",
+  "keywords": [
+    "hdr",
+    "ibl",
+    "environment",
+    "tone-mapping"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "private": true
+}

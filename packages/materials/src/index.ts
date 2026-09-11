@@ -1,0 +1,11 @@
+export * from './Material.js'
+export * from './BasicMaterial.js'
+export * from './StandardMaterial.js'
+export * from './ShaderMaterial.js'
+export * from './NormalMaterial.js'
+export * from './DepthMaterial.js'
+export * from './Texture.js'
+export * from './TextureMaterial.js'
+export * from './TextTexture.js'
+
+export { WaterMaterial, type WaterMaterialOptions } from './WaterMaterial.js'

@@ -1,0 +1,1 @@
+:root{color-scheme:dark;font-family:Inter,system-ui,sans-serif;background:#080b13}*{box-sizing:border-box}body{margin:0;overflow:hidden}canvas{display:block;width:100vw;height:100vh}#stats{position:fixed;left:18px;bottom:18px;padding:9px 12px;border:1px solid #fff2;border-radius:9px;background:#0e1422d9;color:#e9edff;font-size:12px;backdrop-filter:blur(12px)}

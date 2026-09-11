@@ -1,0 +1,101 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/math"
+    },
+    {
+      "path": "packages/geometry"
+    },
+    {
+      "path": "packages/materials"
+    },
+    {
+      "path": "packages/scene"
+    },
+    {
+      "path": "packages/cameras"
+    },
+    {
+      "path": "packages/lighting"
+    },
+    {
+      "path": "packages/renderer"
+    },
+    {
+      "path": "packages/dynamic-texture"
+    },
+    {
+      "path": "packages/renderer-webgl2"
+    },
+    {
+      "path": "packages/renderer-webgpu"
+    },
+    {
+      "path": "packages/controls"
+    },
+    {
+      "path": "packages/interaction"
+    },
+    {
+      "path": "packages/collision"
+    },
+    {
+      "path": "packages/buildings"
+    },
+    {
+      "path": "packages/assets"
+    },
+    {
+      "path": "packages/gltf"
+    },
+    {
+      "path": "packages/postprocessing"
+    },
+    {
+      "path": "packages/xr"
+    },
+    {
+      "path": "packages/modules"
+    },
+    {
+      "path": "packages/animation"
+    },
+    {
+      "path": "packages/decoders"
+    },
+    {
+      "path": "packages/streaming"
+    },
+    {
+      "path": "packages/environment"
+    },
+    {
+      "path": "packages/large-scene"
+    },
+    {
+      "path": "packages/recovery"
+    },
+    {
+      "path": "optional-adapters/draco"
+    },
+    {
+      "path": "optional-adapters/meshopt"
+    },
+    {
+      "path": "optional-adapters/ktx2"
+    },
+    {
+      "path": "packages/texture-tools"
+    },
+    {
+      "path": "packages/environment-authoring"
+    },
+    {
+      "path": "packages/sekai64"
+    }
+  ]
+}

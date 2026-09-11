@@ -1,0 +1,5 @@
+export * from './ShadowBudgetManager.js'
+export * from './SpatialMeshIndex.js'
+export * from './LargeSceneRendererModule.js'
+export * from './WorldOriginRebaser.js'
+export * from './VisibilityRegionIndex.js'

@@ -1,0 +1,189 @@
+{
+  "name": "@blcklab/sekai64",
+  "version": "0.8.0-rc.33",
+  "description": "Modular WebGPU/WebGL2 TypeScript renderer with optional animation, streaming, HDR environments, large-scene tools, recovery, and WebXR.",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "docs/schemas",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./math": {
+      "types": "./dist/math/index.d.ts",
+      "import": "./dist/math/index.js"
+    },
+    "./geometry": {
+      "types": "./dist/geometry/index.d.ts",
+      "import": "./dist/geometry/index.js"
+    },
+    "./geometry/beveled-box": {
+      "types": "./dist/geometry/beveled-box/index.d.ts",
+      "import": "./dist/geometry/beveled-box/index.js"
+    },
+    "./materials": {
+      "types": "./dist/materials/index.d.ts",
+      "import": "./dist/materials/index.js"
+    },
+    "./scene": {
+      "types": "./dist/scene/index.d.ts",
+      "import": "./dist/scene/index.js"
+    },
+    "./cameras": {
+      "types": "./dist/cameras/index.d.ts",
+      "import": "./dist/cameras/index.js"
+    },
+    "./lighting": {
+      "types": "./dist/lighting/index.d.ts",
+      "import": "./dist/lighting/index.js"
+    },
+    "./renderer": {
+      "types": "./dist/renderer/index.d.ts",
+      "import": "./dist/renderer/index.js"
+    },
+    "./modules": {
+      "types": "./dist/modules/index.d.ts",
+      "import": "./dist/modules/index.js"
+    },
+    "./animation": {
+      "types": "./dist/animation/index.d.ts",
+      "import": "./dist/animation/index.js"
+    },
+    "./decoders": {
+      "types": "./dist/decoders/index.d.ts",
+      "import": "./dist/decoders/index.js"
+    },
+    "./streaming": {
+      "types": "./dist/streaming/index.d.ts",
+      "import": "./dist/streaming/index.js"
+    },
+    "./environment": {
+      "types": "./dist/environment/index.d.ts",
+      "import": "./dist/environment/index.js"
+    },
+    "./large-scene": {
+      "types": "./dist/large-scene/index.d.ts",
+      "import": "./dist/large-scene/index.js"
+    },
+    "./recovery": {
+      "types": "./dist/recovery/index.d.ts",
+      "import": "./dist/recovery/index.js"
+    },
+    "./dynamic-texture": {
+      "types": "./dist/dynamic-texture/index.d.ts",
+      "import": "./dist/dynamic-texture/index.js"
+    },
+    "./renderers/webgl2": {
+      "types": "./dist/renderer-webgl2/index.d.ts",
+      "import": "./dist/renderer-webgl2/index.js"
+    },
+    "./renderers/webgpu": {
+      "types": "./dist/renderer-webgpu/index.d.ts",
+      "import": "./dist/renderer-webgpu/index.js"
+    },
+    "./controls": {
+      "types": "./dist/controls/index.d.ts",
+      "import": "./dist/controls/index.js"
+    },
+    "./interaction": {
+      "types": "./dist/interaction/index.d.ts",
+      "import": "./dist/interaction/index.js"
+    },
+    "./collision": {
+      "types": "./dist/collision/index.d.ts",
+      "import": "./dist/collision/index.js"
+    },
+    "./buildings": {
+      "types": "./dist/buildings/index.d.ts",
+      "import": "./dist/buildings/index.js"
+    },
+    "./assets": {
+      "types": "./dist/assets/index.d.ts",
+      "import": "./dist/assets/index.js"
+    },
+    "./gltf": {
+      "types": "./dist/gltf/index.d.ts",
+      "import": "./dist/gltf/index.js"
+    },
+    "./postprocessing": {
+      "types": "./dist/postprocessing/index.d.ts",
+      "import": "./dist/postprocessing/index.js"
+    },
+    "./xr": {
+      "types": "./dist/xr/index.d.ts",
+      "import": "./dist/xr/index.js"
+    },
+    "./schemas/scene-v2.json": "./docs/schemas/scene-v2.json",
+    "./package.json": "./package.json",
+    "./texture-tools": {
+      "types": "./dist/texture-tools/index.d.ts",
+      "import": "./dist/texture-tools/index.js"
+    },
+    "./environment-authoring": {
+      "types": "./dist/environment-authoring/index.d.ts",
+      "import": "./dist/environment-authoring/index.js"
+    }
+  },
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "build": "tsc -b && node scripts/assemble-public-package.mjs && node scripts/sync-root-public-package.mjs",
+    "test": "npm run build && npm run test:run",
+    "test:run": "node scripts/run-tests.mjs",
+    "verify": "npm test && node scripts/verify-public-package.mjs && node scripts/verify-root-public-package.mjs",
+    "prepublishOnly": "npm run verify",
+    "check": "npm run verify"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "next"
+  },
+  "license": "MIT",
+  "author": "Avelurs Tinio",
+  "keywords": [
+    "3d",
+    "webgpu",
+    "webgl2",
+    "typescript",
+    "json-scene",
+    "textures",
+    "virtual-store",
+    "webxr",
+    "renderer-adapter",
+    "virtual-world",
+    "raycasting",
+    "point-lights",
+    "animation",
+    "skinning",
+    "morph-targets",
+    "hdr",
+    "streaming"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/blcklab/sekai64.git"
+  },
+  "bugs": {
+    "url": "https://github.com/blcklab/sekai64/issues"
+  },
+  "homepage": "https://github.com/blcklab/sekai64#readme",
+  "devDependencies": {
+    "typescript": "5.8.3"
+  }
+}
