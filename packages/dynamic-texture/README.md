@@ -23,3 +23,5 @@ frame.dispose()
 ```
 
 The module owns CPU-side texture state only. WebGL2 and WebGPU renderers own backend allocations and uploads. Same-size updates reuse GPU storage; resize or format changes reallocate. No loop, Anyo semantic, application runtime, or required renderer method is added.
+
+Generated mipmaps are supported on both WebGL2 and WebGPU. WebGPU regenerates the mip chain after same-size dynamic updates, so oblique UI/text surfaces can use trilinear + anisotropic sampling without stale lower levels.

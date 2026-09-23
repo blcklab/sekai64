@@ -1,6 +1,6 @@
 {
   "name": "@sekai64/example-instancing-benchmark",
-  "version": "0.8.0-rc.33",
+  "version": "0.8.0-rc.34-dev.5",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@blcklab/sekai64": "0.8.0-rc.33"
+    "@blcklab/sekai64": "0.8.0-rc.34-dev.5"
   },
   "devDependencies": {
     "vite": "^8.1.0"

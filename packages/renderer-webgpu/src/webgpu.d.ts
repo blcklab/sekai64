@@ -57,8 +57,8 @@ interface GPURenderPassEncoder {
   setBindGroup(index: number, bindGroup: GPUBindGroup): void
   setVertexBuffer(slot: number, buffer: GPUBuffer): void
   setIndexBuffer(buffer: GPUBuffer, format: GPUIndexFormat): void
-  draw(vertexCount: number, instanceCount?: number): void
-  drawIndexed(indexCount: number, instanceCount?: number): void
+  draw(vertexCount: number, instanceCount?: number, firstVertex?: number, firstInstance?: number): void
+  drawIndexed(indexCount: number, instanceCount?: number, firstIndex?: number, baseVertex?: number, firstInstance?: number): void
   end(): void
 }
 

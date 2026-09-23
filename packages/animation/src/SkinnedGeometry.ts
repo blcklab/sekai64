@@ -1,4 +1,5 @@
 import { Geometry, type GeometryData } from '@sekai64-internal/geometry'
+import { Matrix4 } from '@sekai64-internal/math'
 import type { SkeletonResource } from './Skeleton.js'
 
 export interface MorphTargetData {
@@ -22,6 +23,11 @@ export class SkinnedGeometry extends Geometry {
   readonly morphWeights: Float32Array
   private readonly morphedPositions: Float32Array
   private readonly morphedNormals?: Float32Array
+
+  private readonly inverseMeshWorld = new Matrix4()
+  private readonly jointMatrix = new Matrix4()
+  private readonly localJointMatrix = new Matrix4()
+  private localPalette = new Float32Array(0)
 
   constructor(data: SkinnedGeometryData, label?: string) {
     super(data, label)
@@ -61,7 +67,8 @@ export class SkinnedGeometry extends Geometry {
     return this
   }
 
-  deform(skeleton?: SkeletonResource): this {
+  /** When provided, skin into mesh-local space so rendering applies its world transform once. */
+  deform(skeleton?: SkeletonResource, meshWorldMatrix?: Matrix4): this {
     this.assertAlive()
     this.morphedPositions.set(this.basePositions)
     if (this.baseNormals && this.morphedNormals) this.morphedNormals.set(this.baseNormals)
@@ -74,8 +81,19 @@ export class SkinnedGeometry extends Geometry {
     }
     if (skeleton && this.jointIndices && this.jointWeights) {
       skeleton.update()
-      skinPositions(this.morphedPositions, this.positions, this.jointIndices, this.jointWeights, skeleton.palette)
-      if (this.morphedNormals && this.normals) skinNormals(this.morphedNormals, this.normals, this.jointIndices, this.jointWeights, skeleton.palette)
+      let palette = skeleton.palette
+      if (meshWorldMatrix) {
+        this.inverseMeshWorld.copy(meshWorldMatrix).invert()
+        if (this.localPalette.length !== palette.length) this.localPalette = new Float32Array(palette.length)
+        for (let offset = 0; offset < palette.length; offset += 16) {
+          this.jointMatrix.elements.set(palette.subarray(offset, offset + 16))
+          this.localJointMatrix.multiplyMatrices(this.inverseMeshWorld, this.jointMatrix)
+          this.localPalette.set(this.localJointMatrix.elements, offset)
+        }
+        palette = this.localPalette
+      }
+      skinPositions(this.morphedPositions, this.positions, this.jointIndices, this.jointWeights, palette)
+      if (this.morphedNormals && this.normals) skinNormals(this.morphedNormals, this.normals, this.jointIndices, this.jointWeights, palette)
     } else {
       this.positions.set(this.morphedPositions)
       if (this.morphedNormals && this.normals) this.normals.set(this.morphedNormals)

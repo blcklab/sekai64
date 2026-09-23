@@ -1,6 +1,6 @@
-# Renderer modules
+# Modular renderer features
 
-Pass optional modules to `createEngine()` to enable them. Importing a module alone does not change the engine.
+Sekai64 0.8 uses explicit module installation. Importing a subpath has no global side effect.
 
 ```ts
 import { createEngine } from '@blcklab/sekai64'
@@ -11,19 +11,11 @@ const animation = createAnimationRendererModule()
 const recovery = createRendererRecoveryModule()
 
 const engine = await createEngine({
-  canvas: '#app',
-  modules: [animation, recovery]
+  canvas,
+  modules: [animation, recovery],
 })
 ```
 
-Dependencies are set up first. Duplicate module IDs, missing dependencies, and dependency cycles stop setup with an error.
+Module dependencies are ordered before setup. Duplicate IDs, missing dependencies, and dependency cycles fail deterministically. Disposal runs in reverse order and awaits module cleanup.
 
-The module host reports each module's capabilities separately from `engine.capabilities`. Check the module when you need to know whether an optional feature is installed.
-
-When shutting down, await cleanup:
-
-```ts
-await engine.disposeAsync()
-```
-
-Modules are disposed in reverse setup order. See [animation](animation-and-animated-gltf.md) and [recovery](environment-large-scene-recovery.md#recovery) for examples of using the installed modules.
+The module host exposes per-module capabilities separately from the renderer's core capability object.

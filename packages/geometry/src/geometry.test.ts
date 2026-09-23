@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BoxGeometry, CylinderGeometry } from './index.js'
+import { BoxGeometry, CylinderGeometry, SphereGeometry } from './index.js'
 
 describe('Geometry primitives', () => {
   it('generates indexed box faces and bounds', () => {
@@ -16,6 +16,23 @@ describe('Geometry primitives', () => {
     expect(geometry.uvs?.length).toBe((geometry.positions.length / 3) * 2)
     expect(geometry.indices).toBeInstanceOf(Uint16Array)
     expect(geometry.triangleCount).toBeGreaterThanOrEqual(48)
+  })
+
+
+  it('generates a reusable indexed sphere primitive', () => {
+    const geometry = new SphereGeometry({ radius: 2, widthSegments: 12, heightSegments: 8 })
+    expect(geometry.bounds.min.x).toBeCloseTo(-2, 5)
+    expect(geometry.bounds.max.x).toBeCloseTo(2, 5)
+    expect(geometry.bounds.min.y).toBeCloseTo(-2, 5)
+    expect(geometry.bounds.max.y).toBeCloseTo(2, 5)
+    expect(geometry.uvs?.length).toBe((geometry.positions.length / 3) * 2)
+    expect(geometry.triangleCount).toBe(12 * 2 * (8 - 1))
+  })
+
+  it('rejects invalid sphere tessellation', () => {
+    expect(() => new SphereGeometry({ radius: 0 })).toThrow(/greater than zero/)
+    expect(() => new SphereGeometry({ widthSegments: 2 })).toThrow(/at least 3/)
+    expect(() => new SphereGeometry({ heightSegments: 1 })).toThrow(/at least 2/)
   })
 
   it('supports cones and rejects invalid dimensions', () => {

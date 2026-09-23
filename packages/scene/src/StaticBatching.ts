@@ -23,6 +23,7 @@ export function batchStaticMeshes(root: Node, options: StaticBatchOptions = {}):
   const usage = new Map<object, number>()
   root.traverse(node => {
     if (!(node instanceof Mesh) || node instanceof InstancedMesh) return
+    if (node.geometry.groups.length > 0 || node.materials.length > 1 || Object.keys(node.materialGroupSlots).length > 0) return
     usage.set(node.geometry, (usage.get(node.geometry) ?? 0) + 1)
     usage.set(node.material, (usage.get(node.material) ?? 0) + 1)
   })
@@ -44,6 +45,7 @@ export function batchStaticMeshes(root: Node, options: StaticBatchOptions = {}):
     const groups = new Map<string, Mesh[]>()
     for (const child of parent.children) {
       if (!(child instanceof Mesh) || child instanceof InstancedMesh) continue
+      if (child.geometry.groups.length > 0 || child.materials.length > 1 || Object.keys(child.materialGroupSlots).length > 0) continue
       if (child.tags.has('gltf-animated') || child.tags.has('no-static-batch')) continue
       if (child.material.transparent && !options.includeTransparent) continue
       const key = [

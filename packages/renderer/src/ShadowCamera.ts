@@ -84,16 +84,41 @@ function createCascadeFrame(
   for (const corner of corners) radius = Math.max(radius, center.distanceTo(corner))
   radius = Math.max(0.5, Math.ceil((radius + Math.max(0, options.cameraPadding)) * 16) / 16)
   if (options.stabilize) {
-    const worldUnitsPerTexel = (radius * 2) / Math.max(64, options.mapSize)
-    center.set(
-      Math.round(center.x / worldUnitsPerTexel) * worldUnitsPerTexel,
-      Math.round(center.y / worldUnitsPerTexel) * worldUnitsPerTexel,
-      Math.round(center.z / worldUnitsPerTexel) * worldUnitsPerTexel,
-    )
+    stabilizeCascadeCenter(center, radius, directionInput, options.mapSize)
   }
   const frame = createFrameFromCenterRadius(center, radius, directionInput)
   if (!frame) throw new Error('Directional shadow cascade requires a non-zero light direction.')
   return { ...frame, index, splitNear: split.near, splitFar: split.far }
+}
+
+
+function stabilizeCascadeCenter(
+  center: Vector3,
+  radius: number,
+  directionInput: readonly [number, number, number] | Vector3,
+  mapSize: number,
+): void {
+  const direction = directionInput instanceof Vector3
+    ? directionInput.clone().normalize()
+    : new Vector3(...directionInput).normalize()
+  if (direction.lengthSquared() < 1e-8) return
+
+  // Snap in the light's projection plane, not world XYZ. World-axis snapping
+  // still lets the orthographic shadow texel grid slide when the sun is angled,
+  // which shows up as camera-relative "swimming" while the player moves.
+  const lightZ = direction.multiplyScalar(-1)
+  const up = Math.abs(lightZ.y) > 0.98 ? new Vector3(0, 0, 1) : new Vector3(0, 1, 0)
+  const lightX = up.clone().cross(lightZ).normalize()
+  if (lightX.lengthSquared() < 1e-8) lightX.set(1, 0, 0)
+  const lightY = lightZ.clone().cross(lightX).normalize()
+  const worldUnitsPerTexel = (radius * 2) / Math.max(64, mapSize)
+  const lightXPosition = lightX.dot(center)
+  const lightYPosition = lightY.dot(center)
+  const snappedX = Math.round(lightXPosition / worldUnitsPerTexel) * worldUnitsPerTexel
+  const snappedY = Math.round(lightYPosition / worldUnitsPerTexel) * worldUnitsPerTexel
+  center
+    .addScaledVector(lightX, snappedX - lightXPosition)
+    .addScaledVector(lightY, snappedY - lightYPosition)
 }
 
 function createFrameFromCenterRadius(

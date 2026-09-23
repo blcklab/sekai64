@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { Box3, Vector3 } from '@blcklab/sekai64/math'
+import { PerspectiveCamera } from '@blcklab/sekai64/cameras'
 import { AmbientLight, PointLight, Scene, collectSceneLights } from '@blcklab/sekai64'
 import { StandardMaterial, Texture } from '@blcklab/sekai64/materials'
 import { BeveledBoxGeometry } from '@blcklab/sekai64/geometry/beveled-box'
-import { createDirectionalShadowFrame, DEFAULT_ENVIRONMENT_LIGHTING, linearToSrgb, PRODUCT_VISUAL_PRESET, resolveColorManagement, resolveShadowOptions, srgbToLinear, transformOutputColor } from '@blcklab/sekai64/renderer'
+import { createDirectionalShadowCascades, createDirectionalShadowFrame, DEFAULT_ENVIRONMENT_LIGHTING, linearToSrgb, PRODUCT_VISUAL_PRESET, resolveColorManagement, resolveShadowOptions, srgbToLinear, transformOutputColor } from '@blcklab/sekai64/renderer'
 
 assert.deepEqual(resolveColorManagement(), { toneMapping: 'aces', exposure: 1, outputColorSpace: 'srgb' })
 assert.equal(DEFAULT_ENVIRONMENT_LIGHTING.specularIntensity, 1)
@@ -27,6 +28,22 @@ assert.ok(Math.abs(lighting.pointLights[0].colorDecay[0] - middleGrayLinear * 4)
 assert.ok(lighting.pointLights[0].colorDecay[0] > 0.8)
 const frame = createDirectionalShadowFrame(new Box3(new Vector3(-5, 0, -5), new Vector3(5, 4, 5)), [0.4, -1, 0.2])
 assert.ok(frame && frame.matrix.elements.every(Number.isFinite))
+
+const shadowCamera = new PerspectiveCamera({ fieldOfView: 60, aspect: 16 / 9, near: 0.1, far: 500 })
+shadowCamera.position.set(2.345, 3, 8.765)
+shadowCamera.lookAt([2.345, 2.7, 0])
+shadowCamera.updateMatrices()
+const cascadeOptions = { cascades: 1, maxDistance: 80, splitLambda: 0.65, cameraPadding: 2, stabilize: true, mapSize: 2048 }
+const stableA = createDirectionalShadowCascades(shadowCamera, [0.45, -1, 0.3], cascadeOptions)[0]
+assert.ok(stableA)
+shadowCamera.position.x += 0.001
+shadowCamera.position.z += 0.001
+shadowCamera.lookAt([2.346, 2.7, 0.001])
+shadowCamera.updateMatrices()
+const stableB = createDirectionalShadowCascades(shadowCamera, [0.45, -1, 0.3], cascadeOptions)[0]
+assert.ok(stableB)
+assert.ok(Math.abs(stableA.matrix.elements[12] - stableB.matrix.elements[12]) < 1e-10)
+assert.ok(Math.abs(stableA.matrix.elements[13] - stableB.matrix.elements[13]) < 1e-10)
 const geometry = new BeveledBoxGeometry({ width: 4, height: 2, depth: 1, bevelRadius: 0.1, bevelSegments: 2 })
 assert.ok(geometry.triangleCount > 12)
 const metallic = new Texture({ source: new Uint8Array([255, 255, 255, 255]) })

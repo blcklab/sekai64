@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/texture-tools",
-  "version": "0.8.0-rc.33",
+  "version": "0.8.0-rc.34-dev.5",
   "description": "Private optional Sekai64 texture processing and decoder-adapter tools.",
   "type": "module",
   "sideEffects": false,
@@ -24,10 +24,10 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@sekai64-internal/materials": "0.8.0-rc.33"
+    "@sekai64-internal/materials": "0.8.0-rc.34-dev.5"
   },
   "license": "MIT",
-  "author": "Avelurs Tinio",
+  "author": "blcklab",
   "keywords": [
     "textures",
     "mipmaps",

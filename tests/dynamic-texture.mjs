@@ -61,8 +61,8 @@ try {
     capabilities: { ...renderer.capabilities, backend: 'webgpu', computeShaders: true },
   }, { diagnostics: diagnostic => webgpuDiagnostics.push(diagnostic) })
   const gpuFrame = webgpu.create({ width: 16, height: 16, mipmaps: 'generate' })
-  assert.equal(gpuFrame.texture.generateMipmaps, false)
-  assert.ok(webgpuDiagnostics.some(diagnostic => diagnostic.code === 'SEKAI64_DYNAMIC_TEXTURE_WEBGPU_MIPMAP_DOWNGRADE'))
+  assert.equal(gpuFrame.texture.generateMipmaps, true)
+  assert.equal(webgpuDiagnostics.some(diagnostic => diagnostic.code === 'SEKAI64_DYNAMIC_TEXTURE_WEBGPU_MIPMAP_DOWNGRADE'), false)
   gpuFrame.dispose()
 
   console.log('Sekai64 dynamic texture smoke tests passed.')

@@ -74,13 +74,13 @@ describe('dynamic texture capability', () => {
     expect(diagnostics).toContain('SEKAI64_DYNAMIC_TEXTURE_SIZE_LIMIT')
   })
 
-  it('downgrades WebGPU mipmaps explicitly instead of silently changing policy', () => {
+  it('preserves generated mipmaps for WebGPU dynamic textures', () => {
     globalThis.ImageData = FakeImageData as unknown as typeof ImageData
     const diagnostics: string[] = []
     const dynamic = createDynamicTextureCapability(renderer('webgpu'), {
       diagnostics: diagnostic => diagnostics.push(diagnostic.code),
     }).create({ width: 16, height: 16, mipmaps: 'generate' })
-    expect(dynamic.texture.generateMipmaps).toBe(false)
-    expect(diagnostics).toContain('SEKAI64_DYNAMIC_TEXTURE_WEBGPU_MIPMAP_DOWNGRADE')
+    expect(dynamic.texture.generateMipmaps).toBe(true)
+    expect(diagnostics).not.toContain('SEKAI64_DYNAMIC_TEXTURE_WEBGPU_MIPMAP_DOWNGRADE')
   })
 })

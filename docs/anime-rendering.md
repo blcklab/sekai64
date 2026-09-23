@@ -1,11 +1,9 @@
-# Anime and VRM rendering
+# Anime rendering
 
-Use `shadingModel: 'toon'` for stepped shading on a `StandardMaterial`. The toon shader works on both WebGL2 and WebGPU, with textures, lights, shadows, alpha modes, batching, and instancing.
+Sekai64 `StandardMaterial` supports two shading models:
 
 ```ts
-import { StandardMaterial } from '@blcklab/sekai64'
-
-const material = new StandardMaterial({
+new StandardMaterial({
   baseColor: '#eeb7c5',
   shadingModel: 'toon',
   toon: {
@@ -19,21 +17,13 @@ const material = new StandardMaterial({
     rimPower: 2.2,
     outlineColor: '#29283b',
     outlineStrength: 0.78,
-    outlinePower: 4.5
-  }
+    outlinePower: 4.5,
+  },
 })
 ```
 
-Start with `shadeSteps` and the shadow color to set the look. Rim and outline settings add definition around the silhouette.
+The toon path works in both WebGL2 and WebGPU and remains inside the existing standard-material pipeline, so it retains textures, point and directional lights, shadow maps, alpha handling, batching, and instancing.
 
-## VRM materials
+## Current outline behavior
 
-The [glTF loader](assets-gltf.md) imports legacy VRM MToon materials and `VRMC_materials_mtoon`. These use the `mtoon` shading model, which has its own material controls.
-
-For an initial lighting and quality setup, use `CHARACTER_VISUAL_PRESET` from `@blcklab/sekai64/renderer`. See the [character rendering example](../README.md#character-rendering).
-
-## Outlines
-
-The toon material's `outlineStrength` darkens silhouettes based on the viewing angle. It works with batching, but does not draw internal edges or expand the geometry.
-
-MToon inverted-hull outlines and post-processing outlines are separate features. Changing `toon.outlineStrength` does not enable those passes. Check `engine.capabilities.features.outlines` and `invertedHullOutlines` before using them in an adapter.
+`outlineStrength` controls view-dependent silhouette darkening in the material shader. It is lightweight and batching-safe. It is not yet a geometry-expanded inverted-hull outline or a screen-space edge pass, so it does not draw internal object boundaries.
