@@ -1,53 +1,24 @@
 # Animation and animated glTF
 
-To play a model's animations, install the animation module and pass its adapter to the glTF loader.
+The optional animation subpath provides skeleton resources, morph targets, clip sampling, mixers, markers, loop modes, seeking, blend weights, and crossfades.
 
 ```ts
-import { AmbientLight, createEngine, PerspectiveCamera, Scene } from '@blcklab/sekai64'
 import {
   createAnimationRendererModule,
   createGltfAnimationAdapter,
-  GLTF_ANIMATION_EXTENSION_ID,
-  type GltfAnimationSet
 } from '@blcklab/sekai64/animation'
 import { loadModel } from '@blcklab/sekai64/gltf'
 
 const animation = createAnimationRendererModule()
-const engine = await createEngine({ canvas: '#app', modules: [animation] })
-const scene = new Scene()
-scene.add(new AmbientLight())
-const camera = new PerspectiveCamera()
-camera.position.set(0, 1.5, 4)
-camera.lookAt([0, 1, 0])
-
-const model = await loadModel('/character.glb', {
-  animation: createGltfAnimationAdapter(animation)
+const engine = await createEngine({ canvas, modules: [animation] })
+const asset = await loadModel('/character.glb', {
+  animation: createGltfAnimationAdapter(animation),
 })
-scene.add(model)
 
-const set = model.asset.getExtension<GltfAnimationSet>(GLTF_ANIMATION_EXTENSION_ID)
-const clip = set?.clips[0]
-if (clip) set?.mixer?.play(clip, { loop: 'repeat' })
-
-engine.start(() => engine.render(scene, camera))
+const set = asset.getExtension('sekai64.animation.gltf')
+set?.mixer?.play(set.clips[0], { loop: 'repeat' })
 ```
 
-`engine.start()` advances installed modules before your frame callback. If you run your own frame loop, call `animation.update(deltaTime)` with elapsed seconds before rendering.
+Without the adapter, animated input produces `SEKAI64_GLTF_ANIMATION_MODULE_REQUIRED` unless `animatedFallback: 'static-pose'` is selected explicitly.
 
-## Loading a static pose
-
-Without the adapter, animated assets fail with `SEKAI64_GLTF_ANIMATION_MODULE_REQUIRED`. If you only need a still model, opt in to the fallback:
-
-```ts
-const model = await loadModel('/character.glb', {
-  animatedFallback: 'static-pose'
-})
-```
-
-## Playback and limits
-
-The module supports skeletons, morph targets, clip sampling, seeking, loop modes, blend weights, crossfades, and markers. glTF tracks support translation, rotation, scale, and weights with `LINEAR` or `STEP` interpolation. `CUBICSPLINE` is not supported.
-
-Skinning and morph deformation run on the CPU, then upload geometry updates to WebGL2 or WebGPU. Factor that cost into scenes with many animated characters. Animation graphs, additive layers, and root-motion rules belong in your app.
-
-When removing the model, call `model.dispose()` to release its animation clips, skeletons, and model resources. Await `engine.disposeAsync()` when shutting down the engine.
+The RC.10 deformation implementation is correctness-first dynamic geometry shared by WebGL2 and WebGPU. It avoids adding animation shader payload to static consumers. Native GPU skinning is a future performance optimization.

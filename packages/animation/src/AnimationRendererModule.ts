@@ -74,7 +74,8 @@ export class AnimationRendererModule implements RendererModule {
     for (const mixer of this.mixers) mixer.update(deltaTime)
     for (const binding of this.bindings) {
       if (binding.mesh.disposed || binding.mesh.geometry.disposed || binding.skeleton?.disposed) { this.bindings.delete(binding); continue }
-      ;(binding.mesh.geometry as SkinnedGeometry).deform(binding.skeleton)
+      binding.mesh.updateWorldFromRoot()
+      ;(binding.mesh.geometry as SkinnedGeometry).deform(binding.skeleton, binding.mesh.worldMatrix)
     }
   }
 

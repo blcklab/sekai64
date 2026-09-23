@@ -1,6 +1,6 @@
 {
   "name": "@blcklab/sekai64",
-  "version": "0.8.0-rc.33",
+  "version": "0.8.0-rc.34",
   "description": "Modular WebGPU/WebGL2 TypeScript renderer with optional animation, streaming, HDR environments, large-scene tools, recovery, and WebXR.",
   "type": "module",
   "sideEffects": false,
@@ -9,7 +9,8 @@
     "docs/schemas",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "docs/compatibility.md"
   ],
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -141,11 +142,10 @@
   "scripts": {
     "clean": "node scripts/clean.mjs",
     "build": "tsc -b && node scripts/assemble-public-package.mjs && node scripts/sync-root-public-package.mjs",
-    "test": "npm run build && npm run test:run",
-    "test:run": "node scripts/run-tests.mjs",
-    "verify": "npm test && node scripts/verify-public-package.mjs && node scripts/verify-root-public-package.mjs",
+    "verify": "npm run build && node scripts/verify-public-package.mjs && node scripts/verify-root-public-package.mjs",
     "prepublishOnly": "npm run verify",
-    "check": "npm run verify"
+    "check": "npm run verify && npm test",
+    "test": "node --test tests/*.test.mjs tests/visual-pipeline-parity.mjs tests/visual-pipeline-reference.mjs"
   },
   "publishConfig": {
     "access": "public",

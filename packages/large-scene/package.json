@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/large-scene",
-  "version": "0.8.0-rc.33",
+  "version": "0.8.0-rc.34",
   "description": "Private optional Sekai64 shadow budgeting and spatial picking acceleration.",
   "type": "module",
   "sideEffects": false,
@@ -24,13 +24,13 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@sekai64-internal/lighting": "0.8.0-rc.33",
-    "@sekai64-internal/math": "0.8.0-rc.33",
-    "@sekai64-internal/modules": "0.8.0-rc.33",
-    "@sekai64-internal/scene": "0.8.0-rc.33"
+    "@sekai64-internal/lighting": "0.8.0-rc.34",
+    "@sekai64-internal/math": "0.8.0-rc.34",
+    "@sekai64-internal/modules": "0.8.0-rc.34",
+    "@sekai64-internal/scene": "0.8.0-rc.34"
   },
   "license": "MIT",
-  "author": "Avelurs Tinio",
+  "author": "blcklab",
   "keywords": [
     "shadows",
     "spatial-index",

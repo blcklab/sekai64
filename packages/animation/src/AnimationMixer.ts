@@ -95,9 +95,16 @@ export class AnimationMixer extends EventDispatcher<MixerEvents> {
     const delta = Math.max(0, deltaTime) * this.timeScale
     const accumulators = new Map<string, PoseAccumulator>()
     for (const action of this.actions) {
-      if (!action.enabled || action.paused || action.finished || action.weight <= 0) continue
-      const previous = action.time
+      if (!action.enabled || action.paused || action.finished) continue
+
+      // Fade progression must happen before the weight gate. Cross-fade targets are
+      // intentionally created at weight 0, so skipping zero-weight actions first
+      // leaves the incoming action permanently invisible. Re-check lifecycle after
+      // the fade because an outgoing action can reach weight 0 and stop this frame.
       action.updateFade(delta)
+      if (!action.enabled || action.finished || action.weight <= 0) continue
+
+      const previous = action.time
       advanceAction(action, delta, marker => this.emit('marker', { action, marker }), () => this.emit('complete', { action }))
       for (const track of action.clip.tracks) {
         const target = this.nodes.get(track.target)

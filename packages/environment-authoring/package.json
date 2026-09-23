@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/environment-authoring",
-  "version": "0.8.0-rc.33",
+  "version": "0.8.0-rc.34",
   "description": "Private optional Sekai64 procedural sky and environment prefilter authoring tools.",
   "type": "module",
   "sideEffects": false,
@@ -24,11 +24,11 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@sekai64-internal/environment": "0.8.0-rc.33",
-    "@sekai64-internal/renderer": "0.8.0-rc.33"
+    "@sekai64-internal/environment": "0.8.0-rc.34",
+    "@sekai64-internal/renderer": "0.8.0-rc.34"
   },
   "license": "MIT",
-  "author": "Avelurs Tinio",
+  "author": "blcklab",
   "keywords": [
     "environment",
     "ibl",

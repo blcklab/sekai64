@@ -1,108 +1,173 @@
 # WebXR
 
-Import XR support from `@blcklab/sekai64/xr` and create the engine with `renderer: 'webgl2'`. XR presentation uses `XRWebGLLayer`; WebGPU XR presentation is not supported.
+Sekai64's low-level WebXR implementation is isolated in `@blcklab/sekai64/xr`. Applications that do not import this subpath do not include XR session code.
 
-Sekai64 handles sessions, poses, views, framebuffers, and input. Your app handles locomotion, collision, actions, and world state.
+Sekai64 owns native session, pose, view, framebuffer, and input handling. A higher-level world runtime such as Anyo remains responsible for collision, locomotion rules, rooms, portals, actions, and persistent world state.
 
-## Enter a VR session
+## Current backend
 
-This example assumes a `canvas`, a `scene`, and an `enterButton`. Request the session from the button's click handler so entry follows a user gesture.
+The `0.7.0-rc.1` XR presentation path is WebGL2 through `XRWebGLLayer`. Create the engine with `renderer: 'webgl2'` before requesting an immersive session.
+
+WebGPU remains available for ordinary rendering, but WebGPU XR presentation is not claimed by this release candidate.
+
+## Session lifecycle
 
 ```ts
 import { createEngine } from '@blcklab/sekai64'
 import { WebGL2Renderer } from '@blcklab/sekai64/renderers/webgl2'
-import { XRSessionManager, XRWebGLLayerBridge } from '@blcklab/sekai64/xr'
+import {
+  XRSessionManager,
+  XRWebGLLayerBridge,
+} from '@blcklab/sekai64/xr'
 
 const engine = await createEngine({
   canvas,
   renderer: 'webgl2',
-  antialias: true
+  antialias: true,
 })
 
 if (!(engine.renderer instanceof WebGL2Renderer)) {
-  throw new Error('WebXR requires the WebGL2 renderer.')
+  throw new Error('WebXR requires the WebGL2 renderer in this release.')
 }
 
 const xr = new XRSessionManager()
 const layer = new XRWebGLLayerBridge(engine.renderer)
 
 enterButton.addEventListener('click', async () => {
-  try {
-    const session = await xr.requestSession('immersive-vr', {
-      referenceSpace: 'local-floor'
-    })
-    await layer.initialize(session, {
-      antialias: true,
-      depthNear: 0.05,
-      depthFar: 100
-    })
-    engine.stop()
-    xr.start(state => layer.render(scene, state))
-  } catch (error) {
-    console.error('Could not enter VR:', error)
-    await xr.end().catch(console.error)
-  }
+  const session = await xr.requestSession('immersive-vr', {
+    referenceSpace: 'local-floor',
+  })
+  await layer.initialize(session, {
+    antialias: true,
+    depthNear: 0.05,
+    depthFar: 100,
+  })
+  xr.start(state => layer.render(scene, state))
 })
 ```
 
-`xr.state` is one of `idle`, `checking-support`, `entering`, `active`, `exiting`, `failed`, or `disposed`. If reference-space setup fails during entry, the manager ends the partial session.
+`XRSessionManager.state` uses an explicit state machine:
 
-## Reference spaces and movement
+```text
+idle
+checking-support
+entering
+active
+exiting
+failed
+disposed
+```
 
-Immersive VR defaults to `local-floor`, with a fallback to `local`. A `bounded-floor` request can fall back through those spaces unless the browser rejects a feature marked as required. Read `xr.referenceSpaceType` after entry to see which space was selected.
+Session entry is atomic. If reference-space initialization fails, Sekai64 ends the partial session and leaves no active session behind.
 
-Use the player rig to teleport or turn the player while preserving physical movement within their room:
+## Reference spaces
+
+Immersive VR defaults to `local-floor`. When that space is unavailable, the manager can fall back to `local`. A `bounded-floor` request may fall back through `local-floor` and `local` unless the browser rejects the session because the feature was explicitly required.
+
+The actual selected type is available as:
+
+```ts
+xr.referenceSpaceType
+```
+
+Do not infer bounded-floor support before a session successfully provides it.
+
+## Player rig
+
+The manager exposes a virtual player rig:
 
 ```ts
 xr.setPlayerRigTransform({
   position: [4, 0, -8],
-  yaw: Math.PI / 2
+  yaw: Math.PI / 2,
 })
 ```
 
-The final viewer and controller transforms are `player rig × native WebXR pose`.
+Final viewer and controller transforms are computed as:
 
-## Viewer and controller input
+```text
+player rig × native WebXR pose
+```
 
-Each frame supplies `state.viewer` and `state.inputs`. Input snapshots include a stable ID within the session, handedness, target-ray mode, profiles, a world-space ray, optional grip pose, buttons, axes, haptics availability, and an optional native hand capability marker.
+This allows a host runtime to implement teleportation and turning while preserving physical room-scale movement.
 
-Button indices follow the WebXR gamepad layout:
+## Viewer and input snapshots
 
-| Index | Control |
-| --- | --- |
-| 0 | Select trigger |
-| 1 | Squeeze |
-| 2 | Touchpad |
-| 3 | Thumbstick |
-| 4 | Primary |
-| 5 | Secondary |
+Every frame provides renderer-neutral snapshots:
 
-Map these controls to your app's actions in the XR frame callback.
+```ts
+xr.start(state => {
+  console.log(state.viewer)
+  console.log(state.inputs)
+})
+```
 
-## Frame loop and events
+Input snapshots include:
 
-`xr.start()` runs one `XRSession.requestAnimationFrame()` chain, even if called more than once. A thrown callback does not stop the next frame from being scheduled. `xr.stop()` stops that loop without ending the session; `await xr.end()` exits the session.
+- Stable session-local input ID
+- Handedness
+- Target-ray mode
+- Input profiles
+- World-space target ray
+- Optional grip pose
+- Standardized WebXR gamepad button semantics
+- Axes
+- Haptics availability
+- Optional native hand capability marker
 
-Stop the desktop render loop while XR is active, as shown above. Resume your desktop loop after `sessionend` if the app should return to a normal view.
+Button semantics follow the WebXR gamepad layout:
 
-The manager emits `statechange`, `sessionstart`, `sessionend`, `inputsourceschange`, `referencespacereset`, `trackinglost`, `trackingrestored`, `frame`, and `error`. Use tracking events to respond when poses become unavailable.
+```text
+0 select trigger
+1 squeeze
+2 touchpad
+3 thumbstick
+4 primary
+5 secondary
+```
 
-If the browser ends the session, the manager clears its hit-test source, input snapshots, viewer pose, and frame callback.
+Sekai64 reports poses and controls. Higher-level action mapping remains the responsibility of the host runtime.
+
+## Frame scheduling
+
+`start()` is idempotent and schedules only one `XRSession.requestAnimationFrame()` chain. The next frame is scheduled in a `finally` path even when a callback or renderer throws. `stop()` cancels the current chain without ending the session.
+
+A host runtime must not run a second desktop render loop at the same time. Anyo's Sekai64 adapter handles this transfer through its renderer frame driver.
+
+## Tracking and lifecycle events
+
+The manager reports:
+
+- `statechange`
+- `sessionstart`
+- `sessionend`
+- `inputsourceschange`
+- `referencespacereset`
+- `trackinglost`
+- `trackingrestored`
+- `frame`
+- `error`
+
+Browser-initiated session termination cleans the session, hit-test source, input snapshots, viewer pose, and frame callback.
 
 ## AR placement
 
-Request the `hit-test` feature, call `enableHitTesting()`, then read `getPlacementMatrix()` or `getPlacementPosition()` during a frame. `createAnchor()` requires support from both the browser and the hit-test result.
+Request the `hit-test` feature, call `enableHitTesting()`, and use `getPlacementMatrix()` or `getPlacementPosition()` during a frame. `createAnchor()` works only when the browser and hit-test result expose anchor support.
 
-## Browser requirements and cleanup
+AR support remains low-level and is not part of Anyo's first VR-focused release candidate.
 
-Immersive sessions normally need HTTPS or localhost and a user gesture. Sekai64 rejects explicitly insecure contexts and reports unsupported modes. It does not record or transmit poses.
+## Security
 
-Await disposal when shutting down:
+Immersive WebXR normally requires HTTPS or localhost and an explicit user gesture. Sekai64 rejects entry in an explicitly insecure context, reports unsupported modes, and does not record or transmit poses.
+
+## Disposal
+
+Prefer asynchronous disposal when coordinating application shutdown:
 
 ```ts
 await xr.disposeAsync()
 layer.dispose()
-await engine.disposeAsync()
+engine.dispose()
 ```
 
-`xr.dispose()` starts the same cleanup without waiting for it.
+The synchronous `dispose()` entry remains available for ordinary resource-owner interfaces and starts the same cleanup process.

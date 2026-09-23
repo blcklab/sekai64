@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import { EnvironmentResource, createEnvironmentRendererModule } from '../dist/environment/index.js'
 import { Scene } from '../dist/scene/index.js'
 
@@ -24,4 +25,8 @@ assert.equal(uploaded?.pixels[3], 1)
 module.dispose()
 environment.dispose()
 
+const anyoAdapter = fs.readFileSync(new URL('../../anyo-0.9.1-rc.17/src/renderer-sekai64/Sekai64Renderer.ts', import.meta.url), 'utf8')
+assert.match(anyoAdapter, /prefilterEnvironment\(sky/)
+assert.match(anyoAdapter, /format:\s*'rgba16f-linear'/)
+assert.doesNotMatch(anyoAdapter, /sky\.toLdr\(\)/)
 console.log('Sekai64 RC.27 GLB viewer-parity HDR bridge checks passed.')

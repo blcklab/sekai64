@@ -1,10 +1,14 @@
-# Dynamic textures
+# Dynamic textures — 0.7.0-rc.6
 
-Use a dynamic texture to display a canvas, emulator frame, or changing image on a material. Call `update()` when the source changes; Sekai64 uploads it on the next render.
+Sekai64 exposes an optional renderer-neutral dynamic-texture capability from:
 
-## Put a canvas on a material
+```ts
+import { createDynamicTextureCapability } from '@blcklab/sekai64/dynamic-texture'
+```
 
-This example assumes you have an engine and a canvas named `emulatorCanvas`.
+The capability owns a normal CPU-side Sekai64 `Texture`. Concrete WebGL2 and WebGPU renderers continue owning GPU allocations, uploads, restoration, and disposal. The required `Renderer` interface is unchanged.
+
+## Basic use
 
 ```ts
 import { StandardMaterial } from '@blcklab/sekai64'
@@ -30,38 +34,42 @@ const screenMaterial = new StandardMaterial({
   emissive: '#ffffff'
 })
 
-// Call after drawing a new frame, even when reusing the same canvas.
+// Call only when the application has a new frame.
 frame.update(emulatorCanvas)
-```
 
-Assign `screenMaterial` to your screen mesh. `frame.texture` is a regular Sekai64 `Texture`, so it works with existing material texture slots.
-
-Sources include `ImageBitmap`, `ImageData`, `HTMLCanvasElement`, `OffscreenCanvas`, and `HTMLImageElement`, plus other image sources accepted by `Texture`.
-
-## Updates and resizing
-
-Your app controls update timing. Pause updates for hidden surfaces and set a frame budget if you have many screens. Sekai64 does not start a separate loop or detect changes to the source.
-
-Multiple updates before a render leave only the latest texture version to upload. Both backends reuse GPU storage while dimensions and format stay compatible; a size or format change reallocates it.
-
-```ts
-// Replace the source with a blank frame. This does not scale the old image.
+// Replaces the CPU source with a blank frame of the requested size.
 frame.resize(320, 288)
 
-// Release the texture when the screen no longer uses it.
 frame.dispose()
 ```
 
-The texture retains its CPU source. WebGL2 can rebuild it after context restoration; after WebGPU device loss, a replacement renderer can upload the retained texture again. See [recovery](environment-large-scene-recovery.md#recovery).
+A source may be an `ImageBitmap`, `ImageData`, `HTMLCanvasElement`, `OffscreenCanvas`, `HTMLImageElement`, or another image source already accepted by Sekai64 `Texture`.
 
-## Mipmaps and size limits
+## Upload behavior
 
-WebGL2 supports `mipmaps: 'generate'`. The dynamic-texture API currently downgrades that option to `'none'` on WebGPU and reports `SEKAI64_DYNAMIC_TEXTURE_WEBGPU_MIPMAP_DOWNGRADE`.
+- Repeated `update()` calls before a render retain only the latest observable texture version for that render.
+- WebGL2 uses an in-place sub-upload when dimensions and format remain compatible.
+- WebGPU reuses the existing GPU texture when dimensions and format remain compatible.
+- Resizing or changing the backend texture format reallocates storage.
+- WebGL2 context restoration lazily rebuilds the texture from retained CPU state.
+- After WebGPU device loss, a host can create a replacement renderer and reuse the retained CPU-side texture resource.
 
-Width and height must be positive integers. Each dimension must fit within the renderer's texture limit and `maxDimension`, which defaults to `8192`.
+Sekai64 does not start a frame loop for a dynamic texture. Scheduling, dirty-state tracking, visibility suspension, and update budgets belong to the host or an optional integration package.
 
-| Diagnostic | Meaning |
-| --- | --- |
-| `SEKAI64_DYNAMIC_TEXTURE_INVALID_SIZE` | The source dimensions are not positive integers. |
-| `SEKAI64_DYNAMIC_TEXTURE_SIZE_LIMIT` | A dimension exceeds the allowed maximum. |
-| `SEKAI64_DYNAMIC_TEXTURE_WEBGPU_MIPMAP_DOWNGRADE` | WebGPU will use only the base mip level for this dynamic texture. |
+## Mipmaps
+
+WebGL2 may generate mipmaps when requested. WebGPU dynamic mipmap generation is not implemented in RC.6; requesting it is explicitly downgraded to the base level and emits `SEKAI64_DYNAMIC_TEXTURE_WEBGPU_MIPMAP_DOWNGRADE`.
+
+## Limits and diagnostics
+
+Dimensions must be positive integers and may not exceed either the renderer's reported texture limit or the configured `maxDimension`.
+
+Diagnostic codes:
+
+- `SEKAI64_DYNAMIC_TEXTURE_INVALID_SIZE`
+- `SEKAI64_DYNAMIC_TEXTURE_SIZE_LIMIT`
+- `SEKAI64_DYNAMIC_TEXTURE_WEBGPU_MIPMAP_DOWNGRADE`
+
+## Architecture boundary
+
+This module contains no Anyo, browser-application, emulator, UV-input, material-slot, or XR-interaction semantics. It is the generic GPU-resource foundation that those optional systems can build on.

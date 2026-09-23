@@ -1,3 +1,31 @@
+# 0.8.0-rc.34
+
+- Preserve generated mipmaps for dynamic textures on WebGPU instead of downgrading to the base level.
+- Regenerate WebGPU mip chains after same-size dynamic texture updates so trilinear/anisotropic sampling never reads stale levels.
+- Keep existing sRGB texture formats and renderer-wide anisotropy policy unchanged.
+
+# Changelog
+
+## 0.8.0-rc.34-dev.4 — material draw groups
+
+- Added renderer-native geometry draw groups with triangle-aligned index/vertex ranges and material slots.
+- `Mesh` now supports multiple material slots while preserving `mesh.material` as backward-compatible slot 0.
+- Added semantic group-name -> material-slot overrides on Mesh.
+- RenderQueue emits per-group opaque/transparent/shadow items without duplicating geometry or semantic nodes.
+- WebGL2 and WebGPU render group ranges directly, including shadows and MToon outline ranges.
+- WebGPU object/shader uniform caches are now keyed per mesh + material so grouped materials keep independent texture/bind-group state.
+- Static batching skips grouped/multi-material meshes until a dedicated grouped-instancing batching contract is added.
+- Added grouped-material regression coverage.
+
+## Unreleased — Native sphere geometry and WebGPU shadow stability
+
+- Added `SphereGeometry` to the public geometry API for renderer-native rounded world geometry without Three.js.
+- Added compact indexed UV-sphere generation with normals, UVs, validation, and regression coverage.
+- Keeps cone authoring on the existing `CylinderGeometry({ radiusTop: 0 })` path so no duplicate geometry implementation is introduced.
+- Fixed WebGPU directional-shadow lookup coordinates by converting projected Y into WebGPU texture space; this prevents mirrored/camera-relative shadow motion while moving.
+- Stabilized cascaded directional shadows in the light projection plane rather than world XYZ so angled sunlight no longer causes avoidable shadow-map swimming.
+- Added regression coverage for the WebGPU shadow-coordinate conversion and light-space cascade stabilization.
+
 ## 0.8.0-rc.33 — WebGPU sampler compatibility
 
 - Fixed black-screen failures on glTF/VRM assets whose authored samplers use nearest or nearest-mipmap filtering while high anisotropy is enabled.
@@ -47,6 +75,10 @@
 - Preserved RC.22+ multi-GLB ID namespacing and RC.23+ color/PBR correctness.
 
 # Changelog
+
+## 0.8.0-rc.34-dev.1
+
+- Fix CPU-skinned meshes receiving root translation/rotation/scale twice. AnimationRendererModule now deforms into mesh-local space using a per-mesh palette; shared skeleton data remains unchanged.
 
 ## 0.8.0-rc.26 — reference PBR and glTF color fidelity
 

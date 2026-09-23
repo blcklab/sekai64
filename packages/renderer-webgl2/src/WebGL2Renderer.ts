@@ -2,7 +2,7 @@ import type { Camera } from '@sekai64-internal/cameras'
 import type { Geometry } from '@sekai64-internal/geometry'
 import { collectSceneLights, type SceneLightSummary } from '@sekai64-internal/lighting'
 import { BasicMaterial, DepthMaterial, NormalMaterial, ShaderMaterial, StandardMaterial, Texture, TextureMaterial, type Material, type UniformValue } from '@sekai64-internal/materials'
-import { Box3, Color, Matrix4, Vector3, type ColorInput } from '@sekai64-internal/math'
+import { Box3, Color, Frustum, Matrix4, Vector3, type ColorInput } from '@sekai64-internal/math'
 import { ClusteredLightGrid, GeometryResidencyManager, RenderQueueBuilder, createDirectionalShadowCascades, createRendererAdvancedCapabilities, createRendererFeatures, createRendererStats, HierarchicalDepthCuller, resolveAtmosphere, resolveColorGrading, resolveColorManagement, resolveEnvironmentLighting, resolveImageQuality, resolveOptimization, resolvePostProcessing, resolveShadowOptions, srgbToLinear, TextureResidencyManager, type RecoverableRenderer, type RendererAtmosphere, type RendererCapabilities, type RendererColorGrading, type RendererColorManagement, type RendererDiagnosticSink, type RendererEnvironmentLighting, type RendererEnvironmentMap, type RendererImageQuality, type RendererOptimizationOptions, type RendererOptions, type RendererPostProcessing, type RendererRecoveryOptions, type RendererShadowOptions, type RendererStats, type RenderSurface, type RenderItem, type ClusteredPointLight } from '@sekai64-internal/renderer'
 import { InstancedMesh, type Mesh, type Scene } from '@sekai64-internal/scene'
 import { WebGLPostProcessPipeline } from './WebGLPostProcessPipeline.js'
@@ -496,11 +496,11 @@ float sampleShadowCascade(int cascade,vec3 n){
 }
 float shadowVisibility(vec3 n,vec3 lightDirection){
   if(!u_receiveShadow||u_shadowParams.w<0.5)return 1.0;
-  float cameraDistance=distance(u_cameraPosition,v_worldPosition);int count=int(u_shadowCascadeParams.x+0.5);int cascade=0;
-  if(count>1&&cameraDistance>u_shadowSplits.x)cascade=1;if(count>2&&cameraDistance>u_shadowSplits.y)cascade=2;if(count>3&&cameraDistance>u_shadowSplits.z)cascade=3;
+  float viewDepth=max(0.0,-(u_shadowMatrix*vec4(v_worldPosition,1.0)).z);int count=int(u_shadowCascadeParams.x+0.5);int cascade=0;
+  if(count>1&&viewDepth>u_shadowSplits.x)cascade=1;if(count>2&&viewDepth>u_shadowSplits.y)cascade=2;if(count>3&&viewDepth>u_shadowSplits.z)cascade=3;
   float primary=sampleShadowCascade(cascade,n);float result=primary;
-  if(cascade<count-1){float previous=cascade==0?0.0:(cascade==1?u_shadowSplits.x:(cascade==2?u_shadowSplits.y:u_shadowSplits.z));float split=cascade==0?u_shadowSplits.x:(cascade==1?u_shadowSplits.y:(cascade==2?u_shadowSplits.z:u_shadowSplits.w));float width=max(0.0001,split-previous);float blendStart=split-width*u_shadowQuality.y;float blend=smoothstep(blendStart,split,cameraDistance);if(blend>0.0)result=mix(primary,sampleShadowCascade(cascade+1,n),blend);}
-  float fadeStart=u_shadowCascadeParams.y*(1.0-u_shadowQuality.z);float fade=1.0-smoothstep(fadeStart,u_shadowCascadeParams.y,cameraDistance);return mix(1.0,result,fade);
+  if(cascade<count-1){float previous=cascade==0?0.0:(cascade==1?u_shadowSplits.x:(cascade==2?u_shadowSplits.y:u_shadowSplits.z));float split=cascade==0?u_shadowSplits.x:(cascade==1?u_shadowSplits.y:(cascade==2?u_shadowSplits.z:u_shadowSplits.w));float width=max(0.0001,split-previous);float blendStart=split-width*u_shadowQuality.y;float blend=smoothstep(blendStart,split,viewDepth);if(blend>0.0)result=mix(primary,sampleShadowCascade(cascade+1,n),blend);}
+  float fadeStart=u_shadowCascadeParams.y*(1.0-u_shadowQuality.z);float fade=1.0-smoothstep(fadeStart,u_shadowCascadeParams.y,viewDepth);return mix(1.0,result,fade);
 }
 void main(){
   vec4 tint=u_baseColor;
@@ -755,9 +755,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
   private diagnostics?: RendererDiagnosticSink
   private readonly reportedDiagnostics = new Set<string>()
   private readonly lightReference = new Vector3()
-  private readonly shadowCameraPosition = new Vector3()
-  private readonly shadowBoundsCenter = new Vector3()
-  private readonly shadowBoundsSize = new Vector3()
+  private readonly shadowFrustum = new Frustum()
   private readonly localPointLights: ClusteredPointLight[] = []
   private readonly pointPositions = new Float32Array(8 * 4)
   private readonly pointColors = new Float32Array(8 * 4)
@@ -925,7 +923,10 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.stats.visibleLights = this.optimization.clusteredLighting ? clusterStats.visibleLights : lights.pointLights.length
     this.stats.rejectedLights = this.optimization.clusteredLighting ? clusterStats.rejectedLights : Math.max(0, lights.pointCount - lights.pointLights.length)
     const shadowStarted = now()
-    this.renderShadowMap(queue.opaque, lights, camera)
+    const shadowCasters = this.shadowOptions.enabled && lights.directionalSource?.castShadow
+      ? this.renderQueueBuilder.buildShadowCasters(scene, this.optimization)
+      : queue.opaque
+    this.renderShadowMap(shadowCasters, lights, camera)
     this.stats.shadowPassMs = now() - shadowStarted
     const usePostProcess=this.postProcessing.enabled&&options.framebuffer==null&&Boolean(this.postProcessPipeline)
     if(usePostProcess)this.postProcessPipeline?.ensure(Math.max(1,viewport.width),Math.max(1,viewport.height))
@@ -937,8 +938,8 @@ export class WebGL2Renderer implements RecoverableRenderer {
     }
     this.activeProgram = undefined
     const mainStarted = now()
-    for (const item of queue.opaque) { this.drawInvertedHull(item, camera); this.drawMesh(item.mesh, camera, lights, item.worldBounds) }
-    for (const item of queue.transparent) { this.drawInvertedHull(item, camera); this.drawMesh(item.mesh, camera, lights, item.worldBounds) }
+    for (const item of queue.opaque) { this.drawInvertedHull(item, camera); this.drawMesh(item, camera, lights) }
+    for (const item of queue.transparent) { this.drawInvertedHull(item, camera); this.drawMesh(item, camera, lights) }
     this.stats.mainPassMs = now() - mainStarted
     gl.bindVertexArray(null)
     gl.depthMask(true)
@@ -960,7 +961,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.stats.shadowedLights = 1
     let hasCaster = false
     for (const item of items) {
-      if (item.mesh.castShadow && !item.mesh.material.transparent) { hasCaster = true; break }
+      if (item.mesh.castShadow && !item.material.transparent) { hasCaster = true; break }
     }
     if (!hasCaster) return
     const frames=createDirectionalShadowCascades(camera,lights.directionalDirection,this.shadowOptions)
@@ -972,32 +973,28 @@ export class WebGL2Renderer implements RecoverableRenderer {
       if(matrix){matrix.copy(frame.matrix);this.shadowMatrixData.set(matrix.elements,frame.index*16)}
       this.shadowSplits[frame.index]=frame.splitFar
     }
-    this.shadowMatrix.copy(frames[0]?.matrix ?? new Matrix4())
+    this.shadowMatrix.copy(camera.viewMatrix)
     this.ensureShadowResources()
     const gl = this.gl as WebGL2RenderingContext
     const framebuffer = this.shadowFramebuffer
     if (!framebuffer || !this.shadowTexture || !this.depthRegular || !this.depthInstanced) return
     gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
     gl.colorMask(false, false, false, false);gl.depthMask(true);gl.disable(gl.BLEND);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.cullFace(gl.FRONT);gl.clearDepth(1)
-    this.shadowCameraPosition.setFromMatrixPosition(camera.worldMatrix)
     for(const frame of frames){
+      const shadowFrustum=this.shadowFrustum.setFromProjectionMatrix(frame.matrix)
       gl.framebufferTextureLayer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,this.shadowTexture,0,frame.index)
       gl.viewport(0,0,this.shadowMapSize,this.shadowMapSize);gl.clear(gl.DEPTH_BUFFER_BIT)
       let active: WebGLProgram | undefined
       for (const entry of items) {
         const mesh=entry.mesh
-        if(!mesh.castShadow || mesh.material.transparent) continue
-        if(this.optimization.shadowCasterCulling){
-          entry.worldBounds.getCenter(this.shadowBoundsCenter)
-          const radius=entry.worldBounds.getSize(this.shadowBoundsSize).length()*0.5
-          if(this.shadowBoundsCenter.distanceTo(this.shadowCameraPosition)-radius>Math.min(frame.splitFar,this.shadowOptions.casterDistance))continue
-        }
+        if(!mesh.castShadow || entry.material.transparent) continue
+        if(this.optimization.shadowCasterCulling&&!shadowFrustum.intersectsBox(entry.worldBounds))continue
         const program = mesh instanceof InstancedMesh ? this.depthInstanced : this.depthRegular
         if (active !== program.program) {gl.useProgram(program.program);gl.uniformMatrix4fv(program.uniforms.lightViewProjection,false,frame.matrix.elements);active=program.program;this.stats.pipelineChanges+=1}
         gl.uniformMatrix4fv(program.uniforms.model,false,mesh.worldMatrix.elements);this.stats.uniformUpdates+=1
         const gpu=this.getGeometry(mesh.geometry);gl.bindVertexArray(gpu.vao)
-        if(mesh instanceof InstancedMesh){this.bindInstances(mesh);if(gpu.indexed)gl.drawElementsInstanced(gl.TRIANGLES,gpu.count,gpu.indexType,0,mesh.count);else gl.drawArraysInstanced(gl.TRIANGLES,0,gpu.count,mesh.count);this.stats.triangles+=mesh.geometry.triangleCount*mesh.count;this.stats.instancedDrawCalls+=1;this.stats.instancesRendered+=mesh.count}
-        else {if(gpu.indexed)gl.drawElements(gl.TRIANGLES,gpu.count,gpu.indexType,0);else gl.drawArrays(gl.TRIANGLES,0,gpu.count);this.stats.triangles+=mesh.geometry.triangleCount}
+        if(mesh instanceof InstancedMesh){this.bindInstances(mesh);this.drawGeometryRange(gpu,entry.start,entry.count,mesh.count);this.stats.triangles+=(entry.count/3)*mesh.count;this.stats.instancedDrawCalls+=1;this.stats.instancesRendered+=mesh.count}
+        else {this.drawGeometryRange(gpu,entry.start,entry.count,1);this.stats.triangles+=entry.count/3}
         this.stats.drawCalls+=1;this.stats.shadowDrawCalls+=1
       }
     }
@@ -1128,7 +1125,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
   }
 
   private drawInvertedHull(item: RenderItem, camera: Camera): void {
-    const material = item.mesh.material
+    const material = item.material
     const outlines = this.postProcessing.outlines
     if (!outlines.enabled || (outlines.mode !== 'inverted-hull' && outlines.mode !== 'hybrid')) return
     if (!(material instanceof StandardMaterial) || material.shadingModel !== 'mtoon' || material.mtoonOutlineWidth <= 0) return
@@ -1152,15 +1149,13 @@ export class WebGL2Renderer implements RecoverableRenderer {
     gl.bindVertexArray(gpu.vao)
     if (mesh instanceof InstancedMesh) {
       this.bindInstances(mesh)
-      if (gpu.indexed) gl.drawElementsInstanced(gl.TRIANGLES, gpu.count, gpu.indexType, 0, mesh.count)
-      else gl.drawArraysInstanced(gl.TRIANGLES, 0, gpu.count, mesh.count)
-      this.stats.triangles += mesh.geometry.triangleCount * mesh.count
+      this.drawGeometryRange(gpu, item.start, item.count, mesh.count)
+      this.stats.triangles += (item.count / 3) * mesh.count
       this.stats.instancedDrawCalls += 1
       this.stats.instancesRendered += mesh.count
     } else {
-      if (gpu.indexed) gl.drawElements(gl.TRIANGLES, gpu.count, gpu.indexType, 0)
-      else gl.drawArrays(gl.TRIANGLES, 0, gpu.count)
-      this.stats.triangles += mesh.geometry.triangleCount
+      this.drawGeometryRange(gpu, item.start, item.count, 1)
+      this.stats.triangles += item.count / 3
     }
     this.stats.drawCalls += 1
     this.stats.pipelineChanges += 1
@@ -1220,13 +1215,16 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.stats.textureMemory = Math.max(0, this.stats.textureMemory - state.bytes)
   }
 
-  private drawMesh(mesh: Mesh, camera: Camera, lights: SceneLightSummary, worldBounds?: Box3): void {
-    if (mesh.material instanceof ShaderMaterial) {
-      this.drawShaderMesh(mesh, camera, mesh.material)
+  private drawMesh(item: RenderItem, camera: Camera, lights: SceneLightSummary): void {
+    const mesh = item.mesh
+    const material = item.material
+    const worldBounds = item.worldBounds
+    if (material instanceof ShaderMaterial) {
+      this.drawShaderMesh(item, camera, material)
       return
     }
     const gl = this.gl as WebGL2RenderingContext
-    const surface = materialSurface(mesh.material)
+    const surface = materialSurface(material)
     if (!surface) return
     const program = mesh instanceof InstancedMesh ? this.instanced as ProgramState : this.regular as ProgramState
     if (this.activeProgram !== program.program) {
@@ -1353,23 +1351,21 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.bindSurfaceTexture(6, surface.roughnessTexture, uniforms.useRoughnessMap, uniforms.roughnessTexCoord)
     this.bindSurfaceTexture(8, surface.faceShadow, uniforms.useFaceShadowMap, uniforms.faceShadowTexCoord)
     this.bindSurfaceTexture(10, surface.lightMap, uniforms.useLightMap, uniforms.lightMapTexCoord)
-    this.reportUnsupportedMaterial(mesh)
-    if (mesh.material.side === 'double') gl.disable(gl.CULL_FACE)
-    else { gl.enable(gl.CULL_FACE); gl.cullFace(mesh.material.side === 'back' ? gl.FRONT : gl.BACK) }
-    if (mesh.material.transparent) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA) } else gl.disable(gl.BLEND)
-    gl.depthMask(mesh.material.depthWrite)
+    this.reportUnsupportedMaterial(mesh, material)
+    if (material.side === 'double') gl.disable(gl.CULL_FACE)
+    else { gl.enable(gl.CULL_FACE); gl.cullFace(material.side === 'back' ? gl.FRONT : gl.BACK) }
+    if (material.transparent) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA) } else gl.disable(gl.BLEND)
+    gl.depthMask(material.depthWrite)
     gl.bindVertexArray(gpu.vao)
     if (mesh instanceof InstancedMesh) {
       this.bindInstances(mesh)
-      if (gpu.indexed) gl.drawElementsInstanced(gl.TRIANGLES, gpu.count, gpu.indexType, 0, mesh.count)
-      else gl.drawArraysInstanced(gl.TRIANGLES, 0, gpu.count, mesh.count)
-      this.stats.triangles += mesh.geometry.triangleCount * mesh.count
+      this.drawGeometryRange(gpu, item.start, item.count, mesh.count)
+      this.stats.triangles += (item.count / 3) * mesh.count
       this.stats.instancedDrawCalls += 1
       this.stats.instancesRendered += mesh.count
     } else {
-      if (gpu.indexed) gl.drawElements(gl.TRIANGLES, gpu.count, gpu.indexType, 0)
-      else gl.drawArrays(gl.TRIANGLES, 0, gpu.count)
-      this.stats.triangles += mesh.geometry.triangleCount
+      this.drawGeometryRange(gpu, item.start, item.count, 1)
+      this.stats.triangles += item.count / 3
     }
     this.stats.drawCalls += 1
     this.stats.visibleObjects += 1
@@ -1377,7 +1373,8 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.stats.uniformUpdates += 1
   }
 
-  private drawShaderMesh(mesh: Mesh, camera: Camera, material: ShaderMaterial): void {
+  private drawShaderMesh(item: RenderItem, camera: Camera, material: ShaderMaterial): void {
+    const mesh = item.mesh
     const gl = this.gl as WebGL2RenderingContext
     if (mesh instanceof InstancedMesh) {
       this.reportOnce(`SHADER_INSTANCING:${material.label ?? mesh.id}`, {
@@ -1416,11 +1413,20 @@ export class WebGL2Renderer implements RecoverableRenderer {
     if (material.transparent) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA) } else gl.disable(gl.BLEND)
     gl.depthMask(material.depthWrite)
     gl.bindVertexArray(gpu.vao)
-    if (gpu.indexed) gl.drawElements(gl.TRIANGLES, gpu.count, gpu.indexType, 0)
-    else gl.drawArrays(gl.TRIANGLES, 0, gpu.count)
-    this.stats.triangles += mesh.geometry.triangleCount
+    this.drawGeometryRange(gpu, item.start, item.count, 1)
+    this.stats.triangles += item.count / 3
     this.stats.drawCalls += 1
     this.stats.visibleObjects += 1
+  }
+
+  private drawGeometryRange(gpu: WebGLGeometry, start: number, count: number, instanceCount: number): void {
+    const gl = this.gl as WebGL2RenderingContext
+    if (gpu.indexed) {
+      const offset = start * (gpu.indexType === gl.UNSIGNED_INT ? 4 : 2)
+      if (instanceCount > 1) gl.drawElementsInstanced(gl.TRIANGLES, count, gpu.indexType, offset, instanceCount)
+      else gl.drawElements(gl.TRIANGLES, count, gpu.indexType, offset)
+    } else if (instanceCount > 1) gl.drawArraysInstanced(gl.TRIANGLES, start, count, instanceCount)
+    else gl.drawArrays(gl.TRIANGLES, start, count)
   }
 
   private bindSurfaceTexture(unit: number, binding: TextureBinding, useLocation: WebGLUniformLocation | null, texCoordLocation: WebGLUniformLocation | null): void {
@@ -1666,9 +1672,9 @@ export class WebGL2Renderer implements RecoverableRenderer {
     })
   }
 
-  private reportUnsupportedMaterial(mesh: Mesh): void {
-    if (mesh.material.wireframe) this.reportOnce(`WIREFRAME:${mesh.material.label ?? mesh.id}`, {
-      severity: 'warning', code: 'SEKAI64_WIREFRAME_UNSUPPORTED', message: 'Wireframe rendering is not supported; the material is rendered filled.', details: { backend: this.backend, meshId: mesh.id, material: mesh.material.label }
+  private reportUnsupportedMaterial(mesh: Mesh, material: Material): void {
+    if (material.wireframe) this.reportOnce(`WIREFRAME:${material.label ?? mesh.id}`, {
+      severity: 'warning', code: 'SEKAI64_WIREFRAME_UNSUPPORTED', message: 'Wireframe rendering is not supported; the material is rendered filled.', details: { backend: this.backend, meshId: mesh.id, material: material.label }
     })
   }
 

@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/streaming",
-  "version": "0.8.0-rc.33",
+  "version": "0.8.0-rc.34",
   "description": "Private optional Sekai64 streaming, priority scheduling, and worker-pool module.",
   "type": "module",
   "sideEffects": false,
@@ -24,11 +24,11 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@sekai64-internal/core": "0.8.0-rc.33",
-    "@sekai64-internal/modules": "0.8.0-rc.33"
+    "@sekai64-internal/core": "0.8.0-rc.34",
+    "@sekai64-internal/modules": "0.8.0-rc.34"
   },
   "license": "MIT",
-  "author": "Avelurs Tinio",
+  "author": "blcklab",
   "keywords": [
     "streaming",
     "worker",

@@ -1,6 +1,6 @@
 {
   "name": "@blcklab/sekai64",
-  "version": "0.8.0-rc.33",
+  "version": "0.8.0-rc.34",
   "description": "Modular WebGPU/WebGL2 TypeScript renderer with optional animation, streaming, HDR environments, large-scene tools, recovery, and WebXR.",
   "type": "module",
   "sideEffects": false,
@@ -9,7 +9,8 @@
     "docs/schemas",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "STABILITY.md"
   ],
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -146,7 +147,7 @@
     "access": "public"
   },
   "license": "MIT",
-  "author": "Avelurs Tinio",
+  "author": "blcklab",
   "keywords": [
     "3d",
     "webgpu",
