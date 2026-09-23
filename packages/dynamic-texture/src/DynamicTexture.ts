@@ -108,7 +108,7 @@ class RendererDynamicTextureCapability implements DynamicTextureCapability {
       this.maxTextureSize,
       positiveInteger(options.maxDimension ?? this.configuredMaxDimension, 'maxDimension'),
     )
-    const mipmaps = resolveMipmapPolicy(this.backend, options.mipmaps ?? 'none', diagnostics, options.label)
+    const mipmaps = options.mipmaps ?? 'none'
     const source = options.source ?? createBlankSource(
       positiveInteger(options.width, 'width'),
       positiveInteger(options.height, 'height'),
@@ -173,22 +173,6 @@ class ManagedDynamicTexture implements DynamicTexture {
   private assertAlive(): void {
     if (this.disposed) throw new Error('DynamicTexture is disposed.')
   }
-}
-
-function resolveMipmapPolicy(
-  backend: RendererBackend,
-  policy: DynamicTextureMipmapPolicy,
-  diagnostics: RendererDiagnosticSink | undefined,
-  label: string | undefined,
-): DynamicTextureMipmapPolicy {
-  if (backend !== 'webgpu' || policy !== 'generate') return policy
-  diagnostics?.({
-    severity: 'warning',
-    code: 'SEKAI64_DYNAMIC_TEXTURE_WEBGPU_MIPMAP_DOWNGRADE',
-    message: 'WebGPU dynamic textures currently use the base mip level; mipmap generation was downgraded to none.',
-    details: { backend, texture: label },
-  })
-  return 'none'
 }
 
 function createBlankSource(width: number, height: number): DynamicTextureSource {

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { PerspectiveCamera } from '@sekai64-internal/cameras'
 import { Box3, Vector3 } from '@sekai64-internal/math'
 import {
   CHARACTER_VISUAL_PRESET,
+  createDirectionalShadowCascades,
   createDirectionalShadowFrame,
   linearToSrgb,
   resolveAtmosphere,
@@ -62,5 +64,34 @@ describe('visual output pipeline', () => {
     expect(frame).toBeDefined()
     expect(frame?.matrix.elements.every(Number.isFinite)).toBe(true)
     expect(frame?.radius).toBeGreaterThan(5)
+  })
+
+
+  it('stabilizes directional cascades in the light projection plane', () => {
+    const camera = new PerspectiveCamera({ fieldOfView: 60, aspect: 16 / 9, near: 0.1, far: 500 })
+    camera.position.set(2.345, 3, 8.765)
+    camera.lookAt([2.345, 2.7, 0])
+    camera.updateMatrices()
+    const options = { cascades: 1, maxDistance: 80, splitLambda: 0.65, cameraPadding: 2, stabilize: true, mapSize: 2048 }
+    const first = createDirectionalShadowCascades(camera, [0.45, -1, 0.3], options)[0]
+    expect(first).toBeDefined()
+    if (!first) return
+
+    // Move less than one shadow texel in world space. A stabilized cascade may
+    // change in light-space depth, but its projected X/Y translation should
+    // remain locked to the same texel grid rather than sliding continuously.
+    camera.position.x += 0.001
+    camera.position.z += 0.001
+    camera.lookAt([2.346, 2.7, 0.001])
+    camera.updateMatrices()
+    const second = createDirectionalShadowCascades(camera, [0.45, -1, 0.3], options)[0]
+    expect(second).toBeDefined()
+    if (!second) return
+
+    const texel = (first.radius * 2) / options.mapSize
+    const firstElements = first.matrix.elements
+    const secondElements = second.matrix.elements
+    expect(Math.abs((firstElements[12] ?? 0) - (secondElements[12] ?? 0))).toBeLessThanOrEqual(texel * 0.02)
+    expect(Math.abs((firstElements[13] ?? 0) - (secondElements[13] ?? 0))).toBeLessThanOrEqual(texel * 0.02)
   })
 })

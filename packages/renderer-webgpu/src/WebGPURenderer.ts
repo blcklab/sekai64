@@ -3,8 +3,8 @@ import type { Camera } from '@sekai64-internal/cameras'
 import type { Geometry } from '@sekai64-internal/geometry'
 import { collectSceneLights } from '@sekai64-internal/lighting'
 import { BasicMaterial, DepthMaterial, NormalMaterial, ShaderMaterial, StandardMaterial, Texture, TextureMaterial, type Material, type UniformValue } from '@sekai64-internal/materials'
-import { Box3, Color, Matrix4, Vector3, type ColorInput } from '@sekai64-internal/math'
-import { ClusteredLightGrid, GeometryResidencyManager, RenderQueueBuilder, createDirectionalShadowCascades, createRendererAdvancedCapabilities, createRendererFeatures, createRendererStats, HierarchicalDepthCuller, resolveAtmosphere, resolveColorGrading, resolveColorManagement, resolveEnvironmentLighting, resolveImageQuality, resolveOptimization, resolvePostProcessing, resolveShadowOptions, srgbToLinear, TextureResidencyManager, type RecoverableRenderer, type RendererAtmosphere, type RendererCapabilities, type RendererColorGrading, type RendererColorManagement, type RendererDiagnosticSink, type RendererEnvironmentLighting, type RendererEnvironmentMap, type RendererImageQuality, type RendererOptimizationOptions, type RendererOptions, type RendererPostProcessing, type RendererRecoveryOptions, type RendererShadowOptions, type RendererStats, type RenderSurface, type ClusteredPointLight } from '@sekai64-internal/renderer'
+import { Box3, Color, Frustum, Matrix4, Vector3, type ColorInput } from '@sekai64-internal/math'
+import { ClusteredLightGrid, GeometryResidencyManager, RenderQueueBuilder, createDirectionalShadowCascades, createRendererAdvancedCapabilities, createRendererFeatures, createRendererStats, HierarchicalDepthCuller, resolveAtmosphere, resolveColorGrading, resolveColorManagement, resolveEnvironmentLighting, resolveImageQuality, resolveOptimization, resolvePostProcessing, resolveShadowOptions, srgbToLinear, TextureResidencyManager, type RecoverableRenderer, type RendererAtmosphere, type RendererCapabilities, type RendererColorGrading, type RendererColorManagement, type RendererDiagnosticSink, type RendererEnvironmentLighting, type RendererEnvironmentMap, type RendererImageQuality, type RendererOptimizationOptions, type RendererOptions, type RendererPostProcessing, type RendererRecoveryOptions, type RendererShadowOptions, type RendererStats, type RenderSurface, type ClusteredPointLight, type RenderItem } from '@sekai64-internal/renderer'
 import { InstancedMesh, type Mesh, type Scene } from '@sekai64-internal/scene'
 import { WebGPUPostProcessPipeline } from './WebGPUPostProcessPipeline.js'
 
@@ -126,7 +126,7 @@ struct Uniforms {
   glassParams: vec4<f32>,
   attenuationColor: vec4<f32>,
   shadowParams: vec4<f32>,
-  shadowMatrix: mat4x4<f32>,
+  cameraView: mat4x4<f32>,
   toonParams: vec4<f32>,
   toonParams2: vec4<f32>,
   toonShadowColor: vec4<f32>,
@@ -279,7 +279,7 @@ fn environmentSpecular(direction:vec3<f32>,roughness:f32)->vec3<f32>{if(uniforms
 fn environmentBrdf(ndotv:f32,roughness:f32)->vec2<f32>{if(uniforms.environmentIblParams.y>0.5){return textureSampleLevel(environmentBrdfTexture,environmentBrdfSampler,vec2<f32>(clamp(ndotv,0.0,1.0),clamp(roughness,0.0,1.0)),0.0).rg;}let c0=vec4<f32>(-1.0,-0.0275,-0.572,0.022);let c1=vec4<f32>(1.0,0.0425,1.04,-0.04);let r=roughness*c0+c1;let a004=min(r.x*r.x,exp2(-9.28*ndotv))*r.x+r.y;return vec2<f32>(-1.04,1.04)*a004+r.zw;}
 fn specularOcclusion(ndotv:f32,ao:f32,roughness:f32)->f32{return clamp(pow(ndotv+ao,exp2(-16.0*roughness-1.0))-1.0+ao,0.0,1.0);}
 fn sampleShadowCascade(worldPosition:vec3<f32>,n:vec3<f32>,cascade:u32)->f32{
-  let clip=uniforms.shadowMatrices[cascade]*vec4<f32>(worldPosition+n*uniforms.shadowParams.y,1.0);let projected=clip.xyz/max(clip.w,0.00001);let uv=projected.xy*0.5+vec2<f32>(0.5);let depth=projected.z*0.5+0.5-uniforms.shadowParams.x;
+  let clip=uniforms.shadowMatrices[cascade]*vec4<f32>(worldPosition+n*uniforms.shadowParams.y,1.0);let projected=clip.xyz/max(clip.w,0.00001);let uv=vec2<f32>(projected.x*0.5+0.5,0.5-projected.y*0.5);let depth=projected.z*0.5+0.5-uniforms.shadowParams.x;
   if(uv.x<=0.0||uv.x>=1.0||uv.y<=0.0||uv.y>=1.0||depth<=0.0||depth>=1.0){return 1.0;}
   let size=vec2<f32>(textureDimensions(shadowTexture));let texel=vec2<f32>(1.0)/max(size,vec2<f32>(1.0));let radius=max(0.0,uniforms.shadowParams.z);let layer=i32(cascade);let filterMode=i32(uniforms.shadowQuality.x+0.5);
   if(filterMode==0||radius<0.25){return textureSampleCompareLevel(shadowTexture,shadowSampler,uv,layer,depth);}
@@ -290,11 +290,11 @@ fn sampleShadowCascade(worldPosition:vec3<f32>,n:vec3<f32>,cascade:u32)->f32{
   return visible/max(total,1.0);
 }
 fn shadowVisibility(worldPosition:vec3<f32>,n:vec3<f32>)->f32{
-  if(uniforms.shadowParams.w<0.5){return 1.0;}let cameraDistance=distance(uniforms.cameraPosition.xyz,worldPosition);let count=i32(uniforms.shadowCascadeData.x+0.5);var cascade=0u;
-  if(count>1&&cameraDistance>uniforms.shadowSplits.x){cascade=1u;}if(count>2&&cameraDistance>uniforms.shadowSplits.y){cascade=2u;}if(count>3&&cameraDistance>uniforms.shadowSplits.z){cascade=3u;}
+  if(uniforms.shadowParams.w<0.5){return 1.0;}let viewPosition=uniforms.cameraView*vec4<f32>(worldPosition,1.0);let viewDepth=max(0.0,-viewPosition.z);let count=i32(uniforms.shadowCascadeData.x+0.5);var cascade=0u;
+  if(count>1&&viewDepth>uniforms.shadowSplits.x){cascade=1u;}if(count>2&&viewDepth>uniforms.shadowSplits.y){cascade=2u;}if(count>3&&viewDepth>uniforms.shadowSplits.z){cascade=3u;}
   let primary=sampleShadowCascade(worldPosition,n,cascade);var result=primary;
-  if(i32(cascade)<count-1){var previous=0.0;if(cascade==1u){previous=uniforms.shadowSplits.x;}else if(cascade==2u){previous=uniforms.shadowSplits.y;}else if(cascade==3u){previous=uniforms.shadowSplits.z;}var split=uniforms.shadowSplits.x;if(cascade==1u){split=uniforms.shadowSplits.y;}else if(cascade==2u){split=uniforms.shadowSplits.z;}else if(cascade==3u){split=uniforms.shadowSplits.w;}let width=max(0.0001,split-previous);let blendStart=split-width*uniforms.shadowQuality.y;let blend=smoothstep(blendStart,split,cameraDistance);if(blend>0.0){result=mix(primary,sampleShadowCascade(worldPosition,n,cascade+1u),blend);}}
-  let fadeStart=uniforms.shadowCascadeData.y*(1.0-uniforms.shadowQuality.z);let fade=1.0-smoothstep(fadeStart,uniforms.shadowCascadeData.y,cameraDistance);return mix(1.0,result,fade);
+  if(i32(cascade)<count-1){var previous=0.0;if(cascade==1u){previous=uniforms.shadowSplits.x;}else if(cascade==2u){previous=uniforms.shadowSplits.y;}else if(cascade==3u){previous=uniforms.shadowSplits.z;}var split=uniforms.shadowSplits.x;if(cascade==1u){split=uniforms.shadowSplits.y;}else if(cascade==2u){split=uniforms.shadowSplits.z;}else if(cascade==3u){split=uniforms.shadowSplits.w;}let width=max(0.0001,split-previous);let blendStart=split-width*uniforms.shadowQuality.y;let blend=smoothstep(blendStart,split,viewDepth);if(blend>0.0){result=mix(primary,sampleShadowCascade(worldPosition,n,cascade+1u),blend);}}
+  let fadeStart=uniforms.shadowCascadeData.y*(1.0-uniforms.shadowQuality.z);let fade=1.0-smoothstep(fadeStart,uniforms.shadowCascadeData.y,viewDepth);return mix(1.0,result,fade);
 }
 @fragment fn fragment_main(input:VertexOutput,@builtin(front_facing) frontFacing:bool)->@location(0) vec4<f32>{
   let tint=uniforms.baseColor;var sampled=vec4<f32>(1.0);if(uniforms.textureFlags.x>0.5){sampled=textureSample(baseColorTexture,baseColorSampler,uvSet(input,uniforms.textureFlags2.y));}var surfaceAlpha=tint.a*input.color.a*sampled.a;let coverageNoise=interleavedGradientNoise(input.position.xy);if(uniforms.materialParams.y>0.0){let edge=max(fwidth(surfaceAlpha),1.0/255.0);let coverage=smoothstep(uniforms.materialParams.y-edge,uniforms.materialParams.y+edge,surfaceAlpha);if(coverage<coverageNoise){discard;}surfaceAlpha=1.0;}else if((uniforms.environmentMapParams.w>0.5||uniforms.pbrAdvanced.w<0.0)&&surfaceAlpha<1.0){if(surfaceAlpha<coverageNoise){discard;}surfaceAlpha=1.0;}var outputAlpha=select(surfaceAlpha,1.0,uniforms.materialParams2.w>0.5);let base=srgbToLinear(tint.rgb)*input.color.rgb*sampled.rgb;var color=base;let mode=i32(uniforms.materialParams.x);
@@ -383,17 +383,16 @@ export class WebGPURenderer implements RecoverableRenderer {
   private shadowMapSize = 0
   private shadowGeneration = 0
   private shadowAvailable = false
-  private readonly shadowMatrix = new Matrix4()
   private readonly shadowMatrices = [new Matrix4(),new Matrix4(),new Matrix4(),new Matrix4()]
   private readonly shadowSplits = new Float32Array(4)
   private shadowCascadeCount=1
   private shadowCascadeLayers=0
-  private readonly shadowUniforms = new Map<Mesh, WebGPUShadowUniform>()
+  private readonly shadowUniforms = new Map<Mesh, WebGPUShadowUniform[]>()
   private readonly pipelines = new Map<string, GPURenderPipeline>()
   private readonly shaderPipelines = new Map<ShaderMaterial, Map<string, GPURenderPipeline>>()
   private readonly geometries = new Map<Geometry, WebGPUGeometry>()
-  private readonly uniforms = new Map<Mesh, WebGPUObjectUniform>()
-  private readonly shaderUniforms = new Map<Mesh, WebGPUShaderUniform>()
+  private readonly uniforms = new Map<Mesh, Map<Material, WebGPUObjectUniform>>()
+  private readonly shaderUniforms = new Map<Mesh, Map<ShaderMaterial, WebGPUShaderUniform>>()
   private readonly instances = new Map<InstancedMesh, WebGPUInstances>()
   private readonly textures = new Map<Texture, WebGPUTextureState>()
   private readonly textureResidency = new TextureResidencyManager<Texture>()
@@ -415,9 +414,7 @@ export class WebGPURenderer implements RecoverableRenderer {
   private readonly reportedDiagnostics = new Set<string>()
   private readonly lightReference = new Vector3()
   private readonly localPointLights: ClusteredPointLight[] = []
-  private readonly shadowCameraPosition = new Vector3()
-  private readonly shadowBoundsCenter = new Vector3()
-  private readonly shadowBoundsSize = new Vector3()
+  private readonly shadowFrustum = new Frustum()
   private initializationOptions?: RendererOptions
   private timestampQuerySet?: GPUQuerySet
   private timestampResolveBuffer?: GPUBuffer
@@ -639,10 +636,13 @@ export class WebGPURenderer implements RecoverableRenderer {
     this.stats.clusterCount=this.optimization.clusteredLighting?clusterStats.clusterCount:0;this.stats.clusteredLightReferences=this.optimization.clusteredLighting?clusterStats.assignedLightReferences:0
     this.stats.clusterOverflows=this.optimization.clusteredLighting?clusterStats.overflowReferences:0;this.stats.maxClusterLights=this.optimization.clusteredLighting?clusterStats.maximumClusterOccupancy:0
     this.stats.visibleLights=this.optimization.clusteredLighting?clusterStats.visibleLights:lights.pointLights.length;this.stats.rejectedLights=this.optimization.clusteredLighting?clusterStats.rejectedLights:Math.max(0,lights.pointCount-lights.pointLights.length)
+    const shadowCasters = this.shadowOptions.enabled && lights.directionalSource?.castShadow
+      ? this.renderQueueBuilder.buildShadowCasters(scene, this.optimization)
+      : queue.opaque
     const encoder = device.createCommandEncoder({ label: 'Sekai64 frame encoder' })
     this.writeGpuTimestamp(encoder, 0)
     this.ensureShadowResources()
-    const shadowStarted=now();this.renderShadowPass(encoder, queue.opaque, lights, camera);this.stats.shadowPassMs=now()-shadowStarted
+    const shadowStarted=now();this.renderShadowPass(encoder, shadowCasters, lights, camera);this.stats.shadowPassMs=now()-shadowStarted
     const currentView = context.getCurrentTexture().createView()
     const outputWidth=Math.max(1,Math.round(this.width*this.pixelRatio*this.imageQuality.renderScale))
     const outputHeight=Math.max(1,Math.round(this.height*this.pixelRatio*this.imageQuality.renderScale))
@@ -657,30 +657,31 @@ export class WebGPURenderer implements RecoverableRenderer {
     let activePipeline: GPURenderPipeline | undefined
     for (const item of [...queue.opaque, ...queue.transparent]) {
       const mesh = item.mesh
-      if (mesh.material instanceof ShaderMaterial) {
-        const pipeline = this.getShaderPipeline(mesh, mesh.material)
+      const material = item.material
+      if (material instanceof ShaderMaterial) {
+        const pipeline = this.getShaderPipeline(mesh, material)
         if (!pipeline) continue
         const geometry = this.getGeometry(mesh.geometry)
-        const uniform = this.getShaderUniform(mesh)
-        writeShaderUniformValues(uniform.values, mesh, camera, this.lightReference, this.width, this.height, this.pixelRatio, mesh.material.uniforms.values())
+        const uniform = this.getShaderUniform(mesh, material)
+        writeShaderUniformValues(uniform.values, mesh, camera, this.lightReference, this.width, this.height, this.pixelRatio, material.uniforms.values())
         device.queue.writeBuffer(uniform.buffer, 0, uniform.values)
       this.stats.uniformUpdates += 1
         if (pipeline !== activePipeline) { pass.setPipeline(pipeline); activePipeline = pipeline; this.stats.pipelineChanges += 1 }
         pass.setBindGroup(0, uniform.bindGroup)
         this.stats.bindGroupChanges += 1
         this.bindGeometry(pass, geometry)
-        if (geometry.indexed && geometry.indexBuffer) { pass.setIndexBuffer(geometry.indexBuffer, geometry.indexFormat); pass.drawIndexed(geometry.count, 1) }
-        else pass.draw(geometry.count, 1)
-        this.stats.drawCalls += 1; this.stats.visibleObjects += 1; this.stats.triangles += mesh.geometry.triangleCount
+        if (geometry.indexed && geometry.indexBuffer) { pass.setIndexBuffer(geometry.indexBuffer, geometry.indexFormat); pass.drawIndexed(item.count, 1, item.start) }
+        else pass.draw(item.count, 1, item.start)
+        this.stats.drawCalls += 1; this.stats.visibleObjects += 1; this.stats.triangles += item.count / 3
         continue
       }
-      const surface = materialSurface(mesh.material)
+      const surface = materialSurface(material)
       if (!surface) continue
       const geometry = this.getGeometry(mesh.geometry)
       const textureStates=[surface.baseColor,surface.metallicRoughness,surface.normal,surface.emissiveTexture,surface.occlusion,surface.metallic,surface.roughness,surface.faceShadow].map(binding=>binding.texture?.ready?this.getTexture(binding.texture):this.whiteTexture as WebGPUTextureState);textureStates.push(this.environmentTexture??this.whiteTexture as WebGPUTextureState);textureStates.push(surface.lightMap.texture?.ready?this.getTexture(surface.lightMap.texture):this.whiteTexture as WebGPUTextureState);textureStates.push(this.environmentDiffuseTexture??this.environmentTexture??this.whiteTexture as WebGPUTextureState);textureStates.push(this.environmentBrdfTexture??this.whiteTexture as WebGPUTextureState)
-      const uniform = this.getUniform(mesh, textureStates)
-      this.reportUnsupportedMaterial(mesh)
-      const pipeline = this.getPipeline(mesh.material.transparent, mesh.material.side, mesh.material.depthWrite, mesh instanceof InstancedMesh)
+      const uniform = this.getUniform(mesh, material, textureStates)
+      this.reportUnsupportedMaterial(mesh, material)
+      const pipeline = this.getPipeline(material.transparent, material.side, material.depthWrite, mesh instanceof InstancedMesh)
       const localPointLights=this.optimization.clusteredLighting?this.clusterGrid.selectForBounds(item.worldBounds,this.localPointLights,this.maxPointLights):copyPointLights(lights.pointLights,this.localPointLights,this.maxPointLights)
       uniform.values.fill(0)
       uniform.values.set(mesh.worldMatrix.elements, 0)
@@ -710,7 +711,7 @@ export class WebGPURenderer implements RecoverableRenderer {
       uniform.values.set([surface.transmission, surface.ior, surface.thickness, surface.attenuationDistance], 96)
       uniform.values.set([...surface.attenuationColor, 0], 100)
       uniform.values.set([this.shadowOptions.bias, this.shadowOptions.normalBias, this.shadowOptions.softness, this.shadowAvailable && mesh.receiveShadow ? 1 : 0], 104)
-      uniform.values.set(this.shadowMatrix.elements, 108)
+      uniform.values.set(camera.viewMatrix.elements, 108)
       uniform.values.set(surface.toonParams, 124)
       uniform.values.set(surface.toonParams2, 128)
       uniform.values.set([...surface.toonShadowColor, 0], 132)
@@ -759,16 +760,16 @@ export class WebGPURenderer implements RecoverableRenderer {
       uniform.values.set([this.environmentDiffuseTexture?1:0,this.environmentBrdfTexture?1:0,environmentMaxLod,0],412)
       device.queue.writeBuffer(uniform.buffer, 0, uniform.values)
       this.stats.uniformUpdates += 1
-      if(mesh.material instanceof StandardMaterial&&!mesh.material.transparent&&mesh.material.shadingModel==='mtoon'&&mesh.material.mtoonOutlineWidth>0&&this.postProcessing.outlines.enabled&&(this.postProcessing.outlines.mode==='inverted-hull'||this.postProcessing.outlines.mode==='hybrid')){const outlinePipeline=this.getOutlinePipeline(mesh instanceof InstancedMesh);if(outlinePipeline!==activePipeline){pass.setPipeline(outlinePipeline);activePipeline=outlinePipeline;this.stats.pipelineChanges+=1}pass.setBindGroup(0,uniform.bindGroup);this.bindGeometry(pass,geometry);const outlineInstances=mesh instanceof InstancedMesh?mesh.count:1;if(mesh instanceof InstancedMesh)pass.setVertexBuffer(6,this.getInstances(mesh).buffer);if(geometry.indexed&&geometry.indexBuffer){pass.setIndexBuffer(geometry.indexBuffer,geometry.indexFormat);pass.drawIndexed(geometry.count,outlineInstances)}else pass.draw(geometry.count,outlineInstances);this.stats.drawCalls+=1;this.stats.triangles+=mesh.geometry.triangleCount*outlineInstances}
+      if(material instanceof StandardMaterial&&!material.transparent&&material.shadingModel==='mtoon'&&material.mtoonOutlineWidth>0&&this.postProcessing.outlines.enabled&&(this.postProcessing.outlines.mode==='inverted-hull'||this.postProcessing.outlines.mode==='hybrid')){const outlinePipeline=this.getOutlinePipeline(mesh instanceof InstancedMesh);if(outlinePipeline!==activePipeline){pass.setPipeline(outlinePipeline);activePipeline=outlinePipeline;this.stats.pipelineChanges+=1}pass.setBindGroup(0,uniform.bindGroup);this.bindGeometry(pass,geometry);const outlineInstances=mesh instanceof InstancedMesh?mesh.count:1;if(mesh instanceof InstancedMesh)pass.setVertexBuffer(6,this.getInstances(mesh).buffer);if(geometry.indexed&&geometry.indexBuffer){pass.setIndexBuffer(geometry.indexBuffer,geometry.indexFormat);pass.drawIndexed(item.count,outlineInstances,item.start)}else pass.draw(item.count,outlineInstances,item.start);this.stats.drawCalls+=1;this.stats.triangles+=(item.count/3)*outlineInstances}
       if (pipeline !== activePipeline) { pass.setPipeline(pipeline); activePipeline = pipeline; this.stats.pipelineChanges += 1 }
       pass.setBindGroup(0, uniform.bindGroup)
       this.stats.bindGroupChanges += 1
       this.bindGeometry(pass, geometry)
       const instanceCount = mesh instanceof InstancedMesh ? mesh.count : 1
       if (mesh instanceof InstancedMesh) pass.setVertexBuffer(6, this.getInstances(mesh).buffer)
-      if (geometry.indexed && geometry.indexBuffer) { pass.setIndexBuffer(geometry.indexBuffer, geometry.indexFormat); pass.drawIndexed(geometry.count, instanceCount) }
-      else pass.draw(geometry.count, instanceCount)
-      this.stats.drawCalls += 1; this.stats.visibleObjects += 1; this.stats.triangles += mesh.geometry.triangleCount * instanceCount;this.stats.materialChanges+=1
+      if (geometry.indexed && geometry.indexBuffer) { pass.setIndexBuffer(geometry.indexBuffer, geometry.indexFormat); pass.drawIndexed(item.count, instanceCount, item.start) }
+      else pass.draw(item.count, instanceCount, item.start)
+      this.stats.drawCalls += 1; this.stats.visibleObjects += 1; this.stats.triangles += (item.count / 3) * instanceCount;this.stats.materialChanges+=1
       if(mesh instanceof InstancedMesh){this.stats.instancedDrawCalls+=1;this.stats.instancesRendered+=instanceCount}
     }
     pass.end()
@@ -784,35 +785,36 @@ export class WebGPURenderer implements RecoverableRenderer {
     updateFrameStats(this.stats,frameStart,this.lastFrameTime);this.lastFrameTime=frameStart
   }
 
-  private renderShadowPass(encoder: GPUCommandEncoder, items: readonly { mesh: Mesh; worldBounds: Box3 }[], lights: ReturnType<typeof collectSceneLights>, camera: Camera): void {
+  private renderShadowPass(encoder: GPUCommandEncoder, items: readonly RenderItem[], lights: ReturnType<typeof collectSceneLights>, camera: Camera): void {
     this.shadowAvailable=false
     if(!this.shadowOptions.enabled||!lights.directionalSource?.castShadow)return
     this.stats.shadowedLights=1
     let hasCaster=false
-    for(const item of items){if(item.mesh.castShadow&&!item.mesh.material.transparent){hasCaster=true;break}}
+    for(const item of items){if(item.mesh.castShadow&&!item.material.transparent){hasCaster=true;break}}
     if(!hasCaster)return
     const frames=createDirectionalShadowCascades(camera,lights.directionalDirection,this.shadowOptions)
     if(frames.length===0)return
     this.shadowCascadeCount=frames.length;this.shadowSplits.fill(this.shadowOptions.maxDistance)
     for(const frame of frames){this.shadowMatrices[frame.index]?.copy(frame.matrix);this.shadowSplits[frame.index]=frame.splitFar}
-    this.shadowMatrix.copy(frames[0]?.matrix??new Matrix4());this.ensureShadowResources()
+    this.ensureShadowResources()
     if(!this.shadowTexture||!this.shadowRegularPipeline||!this.shadowInstancedPipeline)return
-    const device=this.device as GPUDevice;this.shadowCameraPosition.setFromMatrixPosition(camera.worldMatrix)
+    const device=this.device as GPUDevice
     for(const frame of frames){
+      const shadowFrustum=this.shadowFrustum.setFromProjectionMatrix(frame.matrix)
       const layerView=this.shadowLayerViews[frame.index]
       if(!layerView)continue
       const pass=encoder.beginRenderPass({label:`Sekai64 directional shadow cascade ${frame.index}`,colorAttachments:[],depthStencilAttachment:{view:layerView,depthClearValue:1,depthLoadOp:'clear',depthStoreOp:'store'}})
       let activePipeline:GPURenderPipeline|undefined
       for(const item of items){
         const mesh=item.mesh
-        if(!mesh.castShadow||mesh.material.transparent)continue
-        if(this.optimization.shadowCasterCulling){item.worldBounds.getCenter(this.shadowBoundsCenter);const radius=item.worldBounds.getSize(this.shadowBoundsSize).length()*0.5;if(this.shadowBoundsCenter.distanceTo(this.shadowCameraPosition)-radius>Math.min(frame.splitFar,this.shadowOptions.casterDistance))continue}
-        const pipeline=mesh instanceof InstancedMesh?this.shadowInstancedPipeline:this.shadowRegularPipeline;const geometry=this.getGeometry(mesh.geometry);const uniform=this.getShadowUniform(mesh)
+        if(!mesh.castShadow||item.material.transparent)continue
+        if(this.optimization.shadowCasterCulling&&!shadowFrustum.intersectsBox(item.worldBounds))continue
+        const pipeline=mesh instanceof InstancedMesh?this.shadowInstancedPipeline:this.shadowRegularPipeline;const geometry=this.getGeometry(mesh.geometry);const uniform=this.getShadowUniform(mesh, frame.index)
         uniform.values.set(mesh.worldMatrix.elements,0);uniform.values.set(frame.matrix.elements,16);device.queue.writeBuffer(uniform.buffer,0,uniform.values);this.stats.uniformUpdates+=1
         if(pipeline!==activePipeline){pass.setPipeline(pipeline);activePipeline=pipeline;this.stats.pipelineChanges+=1}
         pass.setBindGroup(0,uniform.bindGroup);this.stats.bindGroupChanges+=1;pass.setVertexBuffer(0,geometry.positionBuffer);const instanceCount=mesh instanceof InstancedMesh?mesh.count:1;if(mesh instanceof InstancedMesh)pass.setVertexBuffer(1,this.getInstances(mesh).buffer)
-        if(geometry.indexed&&geometry.indexBuffer){pass.setIndexBuffer(geometry.indexBuffer,geometry.indexFormat);pass.drawIndexed(geometry.count,instanceCount)}else pass.draw(geometry.count,instanceCount)
-        this.stats.drawCalls+=1;this.stats.shadowDrawCalls+=1;this.stats.triangles+=mesh.geometry.triangleCount*instanceCount
+        if(geometry.indexed&&geometry.indexBuffer){pass.setIndexBuffer(geometry.indexBuffer,geometry.indexFormat);pass.drawIndexed(item.count,instanceCount,item.start)}else pass.draw(item.count,instanceCount,item.start)
+        this.stats.drawCalls+=1;this.stats.shadowDrawCalls+=1;this.stats.triangles+=(item.count/3)*instanceCount
         if(mesh instanceof InstancedMesh){this.stats.instancedDrawCalls+=1;this.stats.instancesRendered+=instanceCount}
       }
       pass.end()
@@ -881,9 +883,9 @@ export class WebGPURenderer implements RecoverableRenderer {
     this.releaseShadowResources()
     this.releaseEnvironmentTexture()
     for (const geometry of this.geometries.values()) { geometry.positionBuffer.destroy(); geometry.normalBuffer.destroy(); geometry.uvBuffer.destroy(); geometry.uv1Buffer.destroy(); geometry.colorBuffer.destroy(); geometry.tangentBuffer.destroy(); geometry.indexBuffer?.destroy() }
-    for (const uniform of this.uniforms.values()) uniform.buffer.destroy()
-    for (const uniform of this.shaderUniforms.values()) uniform.buffer.destroy()
-    for (const uniform of this.shadowUniforms.values()) uniform.buffer.destroy()
+    for (const uniforms of this.uniforms.values()) for (const uniform of uniforms.values()) uniform.buffer.destroy()
+    for (const uniforms of this.shaderUniforms.values()) for (const uniform of uniforms.values()) uniform.buffer.destroy()
+    for (const cascades of this.shadowUniforms.values()) for (const uniform of cascades) uniform?.buffer.destroy()
     for (const instance of this.instances.values()) instance.buffer.destroy()
     for (const texture of this.textures.values()) texture.texture.destroy()
     this.whiteTexture?.texture.destroy()
@@ -981,6 +983,9 @@ export class WebGPURenderer implements RecoverableRenderer {
       && cached.mipLevelCount === textureMipLevelCount(texture, this.imageQuality.mipmaps)
     if (canReuseStorage) {
       uploadTexture(device, cached.texture, texture)
+      if (cached.mipLevelCount > 1 && !(texture.dataSource?.mipLevels?.length)) {
+        generateWebGpuMipmaps(device, cached.texture, format, texture.width, texture.height, cached.mipLevelCount)
+      }
       this.stats.textureMemory = Math.max(0, this.stats.textureMemory - cached.bytes)
       cached.version = texture.version
       cached.bytes = texture.estimatedBytes
@@ -1025,8 +1030,10 @@ export class WebGPURenderer implements RecoverableRenderer {
     this.stats.textureMemory+=state.bytes;this.textureResidency.touch(texture,state.bytes,this.frameIndex,()=>this.evictTexture(texture,state));return state
   }
 
-  private getUniform(mesh: Mesh, textureStates: readonly WebGPUTextureState[]): WebGPUObjectUniform {
-    const cached = this.uniforms.get(mesh)
+  private getUniform(mesh: Mesh, material: Material, textureStates: readonly WebGPUTextureState[]): WebGPUObjectUniform {
+    let byMaterial = this.uniforms.get(mesh)
+    if (!byMaterial) { byMaterial = new Map(); this.uniforms.set(mesh, byMaterial) }
+    const cached = byMaterial.get(material)
     if (cached && cached.shadowGeneration === this.shadowGeneration && sameTextureStates(cached.textureStates, textureStates)) { this.stats.bindGroupCacheHits += 1; return cached }
     this.stats.bindGroupCacheMisses += 1
     const device = this.device as GPUDevice
@@ -1043,27 +1050,34 @@ export class WebGPURenderer implements RecoverableRenderer {
     entries.push({binding:17,resource:(textureStates[7] as WebGPUTextureState).sampler},{binding:18,resource:(textureStates[7] as WebGPUTextureState).view},{binding:19,resource:(textureStates[8] as WebGPUTextureState).sampler},{binding:20,resource:(textureStates[8] as WebGPUTextureState).view},{binding:21,resource:(textureStates[9] as WebGPUTextureState).sampler},{binding:22,resource:(textureStates[9] as WebGPUTextureState).view},{binding:23,resource:(textureStates[10] as WebGPUTextureState).sampler},{binding:24,resource:(textureStates[10] as WebGPUTextureState).view},{binding:25,resource:(textureStates[11] as WebGPUTextureState).sampler},{binding:26,resource:(textureStates[11] as WebGPUTextureState).view})
     const bindGroup = device.createBindGroup({ label: `Sekai64 bind group: ${mesh.id}`, layout, entries })
     const uniform = { buffer, bindGroup, values: new Float32Array(420), textureStates: [...textureStates], shadowGeneration: this.shadowGeneration }
-    this.uniforms.set(mesh, uniform)
+    byMaterial.set(material, uniform)
     this.stats.bindGroupChanges += 1
     this.stats.gpuResourceCreations += 2
     this.stats.gpuResourceCreationsThisFrame += 2
     return uniform
   }
 
-  private getShadowUniform(mesh: Mesh): WebGPUShadowUniform {
-    const cached = this.shadowUniforms.get(mesh)
+  private getShadowUniform(mesh: Mesh, cascadeIndex: number): WebGPUShadowUniform {
+    let cascades = this.shadowUniforms.get(mesh)
+    if (!cascades) {
+      cascades = []
+      this.shadowUniforms.set(mesh, cascades)
+    }
+    const cached = cascades[cascadeIndex]
     if (cached) return cached
     const device = this.device as GPUDevice
-    const buffer = device.createBuffer({ label: `Sekai64 shadow uniforms: ${mesh.id}`, size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
-    const bindGroup = device.createBindGroup({ label: `Sekai64 shadow bind group: ${mesh.id}`, layout: this.shadowBindGroupLayout as GPUBindGroupLayout, entries: [{ binding: 0, resource: { buffer } }] })
+    const buffer = device.createBuffer({ label: `Sekai64 shadow uniforms: ${mesh.id} cascade ${cascadeIndex}`, size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+    const bindGroup = device.createBindGroup({ label: `Sekai64 shadow bind group: ${mesh.id} cascade ${cascadeIndex}`, layout: this.shadowBindGroupLayout as GPUBindGroupLayout, entries: [{ binding: 0, resource: { buffer } }] })
     const uniform = { buffer, bindGroup, values: new Float32Array(32) }
-    this.shadowUniforms.set(mesh, uniform)
+    cascades[cascadeIndex] = uniform
     this.stats.bindGroupChanges += 1;this.stats.gpuResourceCreations += 2;this.stats.gpuResourceCreationsThisFrame += 2
     return uniform
   }
 
-  private getShaderUniform(mesh: Mesh): WebGPUShaderUniform {
-    const cached = this.shaderUniforms.get(mesh)
+  private getShaderUniform(mesh: Mesh, material: ShaderMaterial): WebGPUShaderUniform {
+    let byMaterial = this.shaderUniforms.get(mesh)
+    if (!byMaterial) { byMaterial = new Map(); this.shaderUniforms.set(mesh, byMaterial) }
+    const cached = byMaterial.get(material)
     if (cached) return cached
     const device = this.device as GPUDevice
     const buffer = device.createBuffer({
@@ -1077,7 +1091,7 @@ export class WebGPURenderer implements RecoverableRenderer {
       entries: [{ binding: 0, resource: { buffer } }],
     })
     const uniform = { buffer, bindGroup, values: new Float32Array(104) }
-    this.shaderUniforms.set(mesh, uniform)
+    byMaterial.set(material, uniform)
     this.stats.bindGroupChanges += 1;this.stats.gpuResourceCreations += 2;this.stats.gpuResourceCreationsThisFrame += 2
     return uniform
   }
@@ -1126,7 +1140,7 @@ export class WebGPURenderer implements RecoverableRenderer {
     this.shadowCascadeLayers=0
     this.shadowAvailable = false
     this.shadowGeneration += 1
-    for (const uniform of this.uniforms.values()) uniform.buffer.destroy()
+    for (const uniforms of this.uniforms.values()) for (const uniform of uniforms.values()) uniform.buffer.destroy()
     this.uniforms.clear()
   }
 
@@ -1179,13 +1193,13 @@ export class WebGPURenderer implements RecoverableRenderer {
   private releaseEnvironmentTexture(): void {
     for(const state of [this.environmentTexture,this.environmentDiffuseTexture,this.environmentBrdfTexture]){if(!state)continue;state.texture.destroy();this.stats.textureMemory=Math.max(0,this.stats.textureMemory-state.bytes)}
     this.environmentTexture=undefined;this.environmentDiffuseTexture=undefined;this.environmentBrdfTexture=undefined
-    for(const uniform of this.uniforms.values())uniform.buffer.destroy();this.uniforms.clear()
+    for(const uniforms of this.uniforms.values())for(const uniform of uniforms.values())uniform.buffer.destroy();this.uniforms.clear()
   }
 
   private evictTexture(texture: Texture, state: WebGPUTextureState): void {
     if(this.textures.get(texture)!==state)return
     state.texture.destroy();this.textures.delete(texture);this.stats.textureMemory=Math.max(0,this.stats.textureMemory-state.bytes)
-    for(const [mesh,uniform] of this.uniforms){if(uniform.textureStates.includes(state)){uniform.buffer.destroy();this.uniforms.delete(mesh)}}
+    for(const [mesh,uniforms] of this.uniforms){for(const [material,uniform] of uniforms){if(uniform.textureStates.includes(state)){uniform.buffer.destroy();uniforms.delete(material)}}if(uniforms.size===0)this.uniforms.delete(mesh)}
   }
 
   private getShaderPipeline(mesh: Mesh, material: ShaderMaterial): GPURenderPipeline | null {
@@ -1277,9 +1291,9 @@ export class WebGPURenderer implements RecoverableRenderer {
     })
   }
 
-  private reportUnsupportedMaterial(mesh: Mesh): void {
-    if (mesh.material.wireframe) this.reportOnce(`WIREFRAME:${mesh.material.label ?? mesh.id}`, {
-      severity: 'warning', code: 'SEKAI64_WIREFRAME_UNSUPPORTED', message: 'Wireframe rendering is not supported; the material is rendered filled.', details: { backend: this.backend, meshId: mesh.id, material: mesh.material.label }
+  private reportUnsupportedMaterial(mesh: Mesh, material: Material): void {
+    if (material.wireframe) this.reportOnce(`WIREFRAME:${material.label ?? mesh.id}`, {
+      severity: 'warning', code: 'SEKAI64_WIREFRAME_UNSUPPORTED', message: 'Wireframe rendering is not supported; the material is rendered filled.', details: { backend: this.backend, meshId: mesh.id, material: material.label }
     })
   }
 
@@ -1296,9 +1310,15 @@ export class WebGPURenderer implements RecoverableRenderer {
       this.geometries.delete(geometry)
       this.geometryResidency.remove(geometry)
     }
-    for (const [mesh, uniform] of this.uniforms) if (mesh.disposed) { uniform.buffer.destroy(); this.uniforms.delete(mesh) }
-    for (const [mesh, uniform] of this.shaderUniforms) if (mesh.disposed || mesh.material.disposed) { uniform.buffer.destroy(); this.shaderUniforms.delete(mesh) }
-    for (const [mesh, uniform] of this.shadowUniforms) if (mesh.disposed) { uniform.buffer.destroy(); this.shadowUniforms.delete(mesh) }
+    for (const [mesh, uniforms] of this.uniforms) {
+      for (const [material, uniform] of uniforms) if (mesh.disposed || material.disposed) { uniform.buffer.destroy(); uniforms.delete(material) }
+      if (mesh.disposed || uniforms.size === 0) this.uniforms.delete(mesh)
+    }
+    for (const [mesh, uniforms] of this.shaderUniforms) {
+      for (const [material, uniform] of uniforms) if (mesh.disposed || material.disposed) { uniform.buffer.destroy(); uniforms.delete(material) }
+      if (mesh.disposed || uniforms.size === 0) this.shaderUniforms.delete(mesh)
+    }
+    for (const [mesh, cascades] of this.shadowUniforms) if (mesh.disposed) { for (const uniform of cascades) uniform?.buffer.destroy(); this.shadowUniforms.delete(mesh) }
     for (const [mesh, state] of this.instances) if (mesh.disposed) {
       state.buffer.destroy()
       this.stats.geometryMemory = Math.max(0, this.stats.geometryMemory - state.bytes)

@@ -1,55 +1,54 @@
-# Renderer adapters
+# Renderer Adapter Guidance
 
-A renderer adapter connects your app's objects to Sekai64 nodes. Keep document state, collision rules, portals, and undo history in your app; use the adapter to create and update what gets rendered.
+Sekai64 is designed to render scenes directly and to serve as a backend for renderer-independent compilers.
 
-## Map objects and share resources
+## Recommended boundary
 
-Keep mappings you can use for updates and picking:
+A compiler or world runtime should keep its own document, constraints, entity state, collision descriptions, portals, and history. Its renderer adapter should translate compiled primitives into Sekai64 nodes.
 
-| App identifier | Sekai64 resource |
-| --- | --- |
-| Primitive ID | Node |
-| Material ID | Shared material |
-| Reusable geometry key | Shared geometry |
-| Room ID | Node group |
+```txt
+Compiled primitive ID → Sekai64 Node
+Compiled material ID  → shared Sekai64 Material
+Reusable geometry key → shared Sekai64 Geometry
+Room ID               → Sekai64 Node group
+```
 
-For repeated shapes, share unit geometry and scale each mesh. This example assumes an existing `engine` and a wall size in `width`, `height`, and `thickness`.
+## Shared resources
+
+Create one unit geometry per reusable primitive and scale scene nodes:
 
 ```ts
-import { BoxGeometry, Mesh, StandardMaterial } from '@blcklab/sekai64'
-
 const scope = engine.resources.createScope('compiled-world')
 const unitBox = scope.track(new BoxGeometry())
-const wallMaterial = scope.track(new StandardMaterial({ baseColor: '#eeeeee' }))
+const unitPlane = scope.track(new PlaneGeometry())
+const unitCylinder = scope.track(new CylinderGeometry())
 
 const wall = new Mesh({
   geometry: unitBox,
-  material: wallMaterial,
+  material: sharedWallMaterial,
   ownsResources: false
 })
 wall.scale.set(width, height, thickness)
 ```
 
-`ownsResources: false` lets a wall be removed without destroying geometry or materials used by other walls. When replacing the world, dispose its nodes first, then call `scope.dispose()` once to release the shared resources.
+Dispose nodes independently, then dispose the shared scope once when the mounted world is replaced.
 
-## Apply changes
+## Incremental updates
 
-| Change | Call |
-| --- | --- |
-| Transform | `node.setTransform()` |
-| Visibility | `node.setVisible()` |
-| Geometry | `mesh.setGeometry()` with an explicit ownership choice |
-| Material | `mesh.setMaterial()` with an explicit ownership choice |
-| Text | `textMesh.setText()` |
-| Image | `await imageMesh.setSource()` |
-| Removal | `node.dispose()`, then delete the mapping |
+- Transform: call `node.setTransform()`.
+- Visibility: call `node.setVisible()`.
+- Geometry replacement: call `mesh.setGeometry()` with explicit ownership.
+- Material replacement: call `mesh.setMaterial()` with explicit ownership.
+- Text: call `textMesh.setText()`.
+- Image: call `await imageMesh.setSource()`.
+- Removal: call `node.dispose()` and delete the adapter mapping.
 
 ## Picking
 
-Use triangle precision when the hit needs to follow the visible surface, such as a product or model. Bounds precision is cheaper for walls and simple architecture when an approximate hit is enough.
+Use triangle precision for products, models, image panels, and selectable objects. Use bounds precision for walls and other non-interactive architecture.
 
-For large scenes, use `SpatialMeshIndex` to narrow candidates before exact tests. Instanced hits include `instanceId`; map that index back to your app's primitive ID.
+Instanced picking returns `instanceId`; adapters should map each instance index back to the compiler primitive ID.
 
-## Check renderer capabilities
+## Capability negotiation
 
-Read `engine.capabilities.features` after engine creation before exposing options such as shadows, spot lights, or wireframe. Check optional module capabilities separately. Only enable an option when the active renderer or module supports it.
+Read `engine.capabilities.features` before declaring support to a host runtime. Do not silently claim shadows, spot lights, or wireframe support while those fields are false.

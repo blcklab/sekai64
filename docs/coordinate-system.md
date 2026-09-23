@@ -1,13 +1,13 @@
-# Coordinate system
+# Coordinate System
 
-Sekai64 uses a right-handed coordinate system: `+Y` is up, `-Z` is forward, and `+X` is right.
+- Handedness: right-handed
+- Up axis: `+Y`
+- Forward axis: `-Z`
+- Right axis: `+X`
+- Matrix storage: column-major
+- Transform order: scale, then XYZ Euler rotation, then translation
+- Public angle unit: radians, except perspective field of view which is degrees
+- Camera projection: OpenGL-style `-1..1` depth in the backend-neutral matrix
+- WebGPU conversion: the WebGPU vertex stage remaps clip-space depth to `0..1`
 
-| Convention | Value |
-| --- | --- |
-| Matrix storage | Column-major |
-| Transform order | Scale, XYZ Euler rotation, then translation |
-| Angles | Radians |
-| Perspective field of view | Degrees |
-| Camera projection depth | `-1..1` |
-
-Both renderers use the same camera matrices. The WebGPU vertex stage converts clip-space depth to `0..1` for you.
+The neutral projection convention keeps one camera representation across both backends while making the conversion explicit inside the WebGPU backend.

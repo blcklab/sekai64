@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/assets",
-  "version": "0.8.0-rc.33",
+  "version": "0.8.0-rc.34",
   "description": "Private Sekai64 workspace module: assets. Bundled into @blcklab/sekai64.",
   "type": "module",
   "sideEffects": false,
@@ -24,10 +24,10 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@sekai64-internal/core": "0.8.0-rc.33"
+    "@sekai64-internal/core": "0.8.0-rc.34"
   },
   "license": "MIT",
-  "author": "Avelurs Tinio",
+  "author": "blcklab",
   "keywords": [
     "3d",
     "assets",
