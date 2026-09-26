@@ -56,6 +56,8 @@ export interface RendererImageQuality {
   antialiasing: RendererAntiAliasingMode
   /** Mild post-AA sharpening. */
   sharpen: number
+  /** Generic close-surface detail policy used for lightweight parallax/stability work. */
+  surfaceDetail: 'off' | 'balanced' | 'high'
 }
 
 export type RendererFogMode = 'none' | 'linear' | 'exp2'
@@ -191,7 +193,7 @@ export const DEFAULT_SHADOW_OPTIONS: Readonly<RendererShadowOptions> = Object.fr
 
 export const DEFAULT_IMAGE_QUALITY: Readonly<RendererImageQuality> = Object.freeze({
   dithering: true, maxAnisotropy: 4, renderScale: 1, msaaSamples: 4, mipmaps: true,
-  antialiasing: 'fxaa', sharpen: 0.08,
+  antialiasing: 'fxaa', sharpen: 0.08, surfaceDetail: 'balanced',
 })
 
 export const DEFAULT_ATMOSPHERE: Readonly<RendererAtmosphere> = Object.freeze({
@@ -246,6 +248,7 @@ export const PRODUCT_VISUAL_PRESET: Readonly<RendererVisualQualityPreset> = Obje
     msaaSamples: 4,
     antialiasing: 'fxaa',
     sharpen: 0.05,
+    surfaceDetail: 'high',
   }),
 })
 
@@ -361,6 +364,7 @@ export function resolveImageQuality(value: Partial<RendererImageQuality> = {}): 
     mipmaps: value.mipmaps ?? DEFAULT_IMAGE_QUALITY.mipmaps,
     antialiasing: value.antialiasing ?? DEFAULT_IMAGE_QUALITY.antialiasing,
     sharpen: clampFinite(value.sharpen, DEFAULT_IMAGE_QUALITY.sharpen, 0, 1),
+    surfaceDetail: value.surfaceDetail === 'off' || value.surfaceDetail === 'high' ? value.surfaceDetail : 'balanced',
   }
 }
 

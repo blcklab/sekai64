@@ -37,7 +37,7 @@ assert.match(renderQueue, /buildShadowCasters\(scene: Scene/, 'RenderQueueBuilde
 assert.match(webgpu, /shadowFrustum\.intersectsBox\(item\.worldBounds\)/, 'WebGPU shadow caster culling must use the light cascade frustum')
 assert.match(webgl, /shadowFrustum\.intersectsBox\(entry\.worldBounds\)/, 'WebGL2 shadow caster culling must use the light cascade frustum')
 
-assert.match(webgpu, /new Map<Mesh, WebGPUShadowUniform\[\]>\(\)/, 'WebGPU shadow uniforms must be isolated per mesh and cascade')
-assert.match(webgpu, /getShadowUniform\(mesh, frame\.index\)/, 'WebGPU shadow pass must bind a cascade-specific uniform buffer')
+assert.match(webgpu, /new Map<Mesh, Map<Material, WebGPUShadowUniform\[\]>>\(\)/, 'WebGPU shadow uniforms must be isolated per mesh, material, and cascade')
+assert.match(webgpu, /getShadowUniform\(mesh,item\.material,frame\.index,textureState\)/, 'WebGPU shadow pass must bind a material- and cascade-specific uniform buffer')
 assert.match(webgpu, /cascades\[cascadeIndex\] = uniform/, 'WebGPU shadow uniform cache must retain a distinct buffer for each cascade')
-assert.doesNotMatch(webgpu, /const uniform=this\.getShadowUniform\(mesh\)\n/, 'WebGPU must not reuse one shadow uniform buffer across cascades in a single command buffer')
+assert.doesNotMatch(webgpu, /const uniform=this\.getShadowUniform\(mesh\)\n/, 'WebGPU must not reuse one shadow uniform buffer across materials or cascades in a single command buffer')

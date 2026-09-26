@@ -22,7 +22,7 @@ interface WebGLGeometry {
   bytes: number
   version: number
 }
-interface WebGLInstances { buffer: WebGLBuffer; version: number; bytes: number }
+interface WebGLInstances { matrixBuffer: WebGLBuffer; colorBuffer: WebGLBuffer; matrixVersion: number; colorVersion: number; bytes: number }
 interface WebGLTextureState {
   texture: WebGLTexture
   version: number
@@ -50,6 +50,7 @@ interface Uniforms {
   spotCount: WebGLUniformLocation | null
   mode: WebGLUniformLocation | null
   alphaCutoff: WebGLUniformLocation | null
+  alphaCoverage: WebGLUniformLocation | null
   metallic: WebGLUniformLocation | null
   roughness: WebGLUniformLocation | null
   normalScale: WebGLUniformLocation | null
@@ -78,6 +79,14 @@ interface Uniforms {
   useRoughnessMap: WebGLUniformLocation | null
   metallicTexCoord: WebGLUniformLocation | null
   roughnessTexCoord: WebGLUniformLocation | null
+  detailNormalMap: WebGLUniformLocation | null
+  detailRoughnessMap: WebGLUniformLocation | null
+  detailHeightMap: WebGLUniformLocation | null
+  useDetailNormalMap: WebGLUniformLocation | null
+  useDetailRoughnessMap: WebGLUniformLocation | null
+  useDetailHeightMap: WebGLUniformLocation | null
+  detailParams: WebGLUniformLocation | null
+  surfaceDetailParams: WebGLUniformLocation | null
   outputParams: WebGLUniformLocation | null
   environmentSky: WebGLUniformLocation | null
   environmentGround: WebGLUniformLocation | null
@@ -121,6 +130,8 @@ interface Uniforms {
   specularColor: WebGLUniformLocation | null
   sheenColor: WebGLUniformLocation | null
   waterParams: WebGLUniformLocation | null
+  waterMotion: WebGLUniformLocation | null
+  waterFlowTime: WebGLUniformLocation | null
   waterShallowColor: WebGLUniformLocation | null
   waterDeepColor: WebGLUniformLocation | null
   waterFoamColor: WebGLUniformLocation | null
@@ -128,7 +139,17 @@ interface Uniforms {
   mtoonAdvanced2: WebGLUniformLocation | null
 }
 interface ProgramState { program: WebGLProgram; uniforms: Uniforms }
-interface DepthUniforms { model: WebGLUniformLocation | null; lightViewProjection: WebGLUniformLocation | null }
+interface DepthUniforms {
+  model: WebGLUniformLocation | null
+  lightViewProjection: WebGLUniformLocation | null
+  baseColor: WebGLUniformLocation | null
+  alphaCutoff: WebGLUniformLocation | null
+  baseColorMap: WebGLUniformLocation | null
+  useBaseColorMap: WebGLUniformLocation | null
+  baseColorTexCoord: WebGLUniformLocation | null
+  textureTransform: WebGLUniformLocation | null
+  textureRotation: WebGLUniformLocation | null
+}
 interface DepthProgramState { program: WebGLProgram; uniforms: DepthUniforms }
 interface OutlineUniforms { model: WebGLUniformLocation | null; viewProjection: WebGLUniformLocation | null; width: WebGLUniformLocation | null; mode: WebGLUniformLocation | null; color: WebGLUniformLocation | null }
 interface OutlineProgramState { program: WebGLProgram; uniforms: OutlineUniforms }
@@ -140,6 +161,7 @@ interface ShaderUniforms {
   custom: WebGLUniformLocation | null
 }
 interface ShaderProgramState { program: WebGLProgram; uniforms: ShaderUniforms }
+interface EnvironmentBackgroundProgramState { program: WebGLProgram; inverseViewProjection: WebGLUniformLocation | null; cameraPosition: WebGLUniformLocation | null; environmentMap: WebGLUniformLocation | null; params: WebGLUniformLocation | null; outputParams: WebGLUniformLocation | null }
 interface TextureBinding { texture?: Texture; texCoord: 0 | 1 }
 interface MaterialSurface {
   color: Color
@@ -161,6 +183,13 @@ interface MaterialSurface {
   occlusion: TextureBinding
   metallicTexture: TextureBinding
   roughnessTexture: TextureBinding
+  detailNormal: TextureBinding
+  detailRoughness: TextureBinding
+  detailHeight: TextureBinding
+  detailScale: number
+  detailNormalStrength: number
+  detailRoughnessStrength: number
+  detailHeightScale: number
   transmission: number
   ior: number
   thickness: number
@@ -190,6 +219,8 @@ interface MaterialSurface {
   toonParams3: readonly [number, number, number, number]
   mtoonAdvanced2: readonly [number, number, number, number]
   waterParams: readonly [number, number, number, number]
+  waterMotion: readonly [number, number, number, number]
+  waterFlow: readonly [number, number]
   waterShallowColor: Color
   waterDeepColor: Color
   waterFoamColor: Color
@@ -203,6 +234,26 @@ export interface WebGLViewportRenderOptions {
   updateCamera?: boolean
   resetStats?: boolean
 }
+
+const environmentBackgroundVertex = `#version 300 es
+precision highp float;
+out vec2 v_ndc;
+void main(){vec2 p=gl_VertexID==0?vec2(-1.0,-1.0):(gl_VertexID==1?vec2(3.0,-1.0):vec2(-1.0,3.0));v_ndc=p;gl_Position=vec4(p,0.999999,1.0);}`
+const environmentBackgroundFragment = `#version 300 es
+precision highp float;
+#define PI 3.141592653589793
+in vec2 v_ndc;
+uniform mat4 u_inverseViewProjection;
+uniform vec3 u_cameraPosition;
+uniform sampler2D u_environmentMap;
+uniform vec4 u_params;
+uniform vec4 u_outputParams;
+out vec4 outColor;
+float linearChannelToSrgb(float value){return value<=0.0031308?12.92*value:1.055*pow(max(value,0.0),1.0/2.4)-0.055;}
+vec3 linearToSrgb(vec3 value){return vec3(linearChannelToSrgb(value.r),linearChannelToSrgb(value.g),linearChannelToSrgb(value.b));}
+vec3 toneMap(vec3 color,float mode){color=max(color,vec3(0.0));if(mode<0.5)return color;if(mode<1.5)return color/(vec3(1.0)+color);if(mode>2.5)return color/(vec3(1.0)+max(color,vec3(0.0))*0.6);return clamp((color*(2.51*color+vec3(0.03)))/(color*(2.43*color+vec3(0.59))+vec3(0.14)),0.0,1.0);}
+vec2 environmentUv(vec3 direction){vec3 d=normalize(direction);float phi=atan(d.z,d.x)+u_params.y;return vec2(fract(phi/(2.0*PI)+0.5),acos(clamp(d.y,-1.0,1.0))/PI);}
+void main(){vec4 world=u_inverseViewProjection*vec4(v_ndc,1.0,1.0);vec3 direction=normalize(world.xyz/max(abs(world.w),0.000001)-u_cameraPosition);vec3 color=textureLod(u_environmentMap,environmentUv(direction),0.0).rgb*max(u_params.x,0.0);if(u_params.z>0.5)color=toneMap(color*u_outputParams.x,u_outputParams.y);if(u_outputParams.z>0.5)color=linearToSrgb(color);outColor=vec4(clamp(color,0.0,1.0),1.0);}`
 
 const vertexHeader = `#version 300 es
 layout(location=0) in vec3 a_position;
@@ -226,24 +277,50 @@ layout(location=3) in vec4 a_instance0;
 layout(location=4) in vec4 a_instance1;
 layout(location=5) in vec4 a_instance2;
 layout(location=6) in vec4 a_instance3;
-void main(){mat4 instanceMatrix=mat4(a_instance0,a_instance1,a_instance2,a_instance3);mat4 world=u_model*instanceMatrix;mat3 world3=mat3(world);mat3 normalMatrix=transpose(inverse(world3));float handedness=determinant(world3)<0.0?-1.0:1.0;vec4 worldPosition=world*vec4(a_position,1.0);gl_Position=u_viewProjection*worldPosition;v_worldPosition=worldPosition.xyz;v_normal=normalMatrix*a_normal;v_uv=a_uv;v_uv1=a_uv1;v_color=a_color;v_tangent=vec4(world3*a_tangent.xyz,a_tangent.w*handedness);}`
+layout(location=10) in vec4 a_instanceColor;
+void main(){mat4 instanceMatrix=mat4(a_instance0,a_instance1,a_instance2,a_instance3);mat4 world=u_model*instanceMatrix;mat3 world3=mat3(world);mat3 normalMatrix=transpose(inverse(world3));float handedness=determinant(world3)<0.0?-1.0:1.0;vec4 worldPosition=world*vec4(a_position,1.0);gl_Position=u_viewProjection*worldPosition;v_worldPosition=worldPosition.xyz;v_normal=normalMatrix*a_normal;v_uv=a_uv;v_uv1=a_uv1;v_color=a_color*a_instanceColor;v_tangent=vec4(world3*a_tangent.xyz,a_tangent.w*handedness);}`
 const depthVertex = `#version 300 es
 layout(location=0) in vec3 a_position;
+layout(location=2) in vec2 a_uv;
+layout(location=7) in vec2 a_uv1;
+layout(location=8) in vec4 a_color;
 uniform mat4 u_model;
 uniform mat4 u_lightViewProjection;
-void main(){gl_Position=u_lightViewProjection*u_model*vec4(a_position,1.0);}`
+out vec2 v_uv;
+out vec2 v_uv1;
+out vec4 v_color;
+void main(){gl_Position=u_lightViewProjection*u_model*vec4(a_position,1.0);v_uv=a_uv;v_uv1=a_uv1;v_color=a_color;}`
 const instancedDepthVertex = `#version 300 es
 layout(location=0) in vec3 a_position;
+layout(location=2) in vec2 a_uv;
+layout(location=7) in vec2 a_uv1;
+layout(location=8) in vec4 a_color;
 layout(location=3) in vec4 a_instance0;
 layout(location=4) in vec4 a_instance1;
 layout(location=5) in vec4 a_instance2;
 layout(location=6) in vec4 a_instance3;
+layout(location=10) in vec4 a_instanceColor;
 uniform mat4 u_model;
 uniform mat4 u_lightViewProjection;
-void main(){mat4 instanceMatrix=mat4(a_instance0,a_instance1,a_instance2,a_instance3);gl_Position=u_lightViewProjection*u_model*instanceMatrix*vec4(a_position,1.0);}`
+out vec2 v_uv;
+out vec2 v_uv1;
+out vec4 v_color;
+void main(){mat4 instanceMatrix=mat4(a_instance0,a_instance1,a_instance2,a_instance3);gl_Position=u_lightViewProjection*u_model*instanceMatrix*vec4(a_position,1.0);v_uv=a_uv;v_uv1=a_uv1;v_color=a_color*a_instanceColor;}`
 const depthFragment = `#version 300 es
 precision highp float;
-void main(){}`
+in vec2 v_uv;
+in vec2 v_uv1;
+in vec4 v_color;
+uniform vec4 u_baseColor;
+uniform float u_alphaCutoff;
+uniform sampler2D u_baseColorMap;
+uniform bool u_useBaseColorMap;
+uniform int u_baseColorTexCoord;
+uniform vec4 u_textureTransform;
+uniform float u_textureRotation;
+float interleavedGradientNoise(vec2 p){return fract(52.9829189*fract(0.06711056*p.x+0.00583715*p.y));}
+vec2 surfaceUv(int texCoord){vec2 uv=texCoord==1?v_uv1:v_uv;vec2 centered=uv-vec2(0.5);float c=cos(u_textureRotation);float ss=sin(u_textureRotation);vec2 rotated=vec2(c*centered.x-ss*centered.y,ss*centered.x+c*centered.y)+vec2(0.5);return rotated*u_textureTransform.xy+u_textureTransform.zw;}
+void main(){if(u_alphaCutoff<=0.0)return;float alpha=u_baseColor.a*v_color.a;if(u_useBaseColorMap)alpha*=texture(u_baseColorMap,surfaceUv(u_baseColorTexCoord)).a;float edge=max(fwidth(alpha),1.0/255.0);float coverage=smoothstep(u_alphaCutoff-edge,u_alphaCutoff+edge,alpha);if(coverage<interleavedGradientNoise(gl_FragCoord.xy))discard;}`
 const outlineVertex = `#version 300 es
 layout(location=0) in vec3 a_position;layout(location=1) in vec3 a_normal;uniform mat4 u_model;uniform mat4 u_viewProjection;uniform float u_outlineWidth;uniform float u_outlineMode;void main(){mat3 normalMatrix=transpose(inverse(mat3(u_model)));vec3 worldNormal=normalize(normalMatrix*a_normal);vec4 worldPosition=u_model*vec4(a_position,1.0);vec4 clip=u_viewProjection*worldPosition;if(u_outlineMode<1.5){worldPosition.xyz+=worldNormal*u_outlineWidth;clip=u_viewProjection*worldPosition;}else{vec4 projectedNormal=u_viewProjection*vec4(worldNormal,0.0);vec2 direction=length(projectedNormal.xy)>0.00001?normalize(projectedNormal.xy):vec2(0.0,1.0);clip.xy+=direction*u_outlineWidth*2.0*clip.w;}gl_Position=clip;}`
 const instancedOutlineVertex = `#version 300 es
@@ -279,6 +356,7 @@ uniform vec4 u_spotColors[MAX_SPOT_LIGHTS];
 uniform int u_spotCount;
 uniform int u_mode;
 uniform float u_alphaCutoff;
+uniform bool u_alphaCoverage;
 uniform float u_metallic;
 uniform float u_roughness;
 uniform float u_normalScale;
@@ -291,6 +369,14 @@ uniform sampler2D u_emissiveMap;
 uniform sampler2D u_occlusionMap;
 uniform sampler2D u_metallicMap;
 uniform sampler2D u_roughnessMap;
+uniform sampler2D u_detailNormalMap;
+uniform sampler2D u_detailRoughnessMap;
+uniform sampler2D u_detailHeightMap;
+uniform bool u_useDetailNormalMap;
+uniform bool u_useDetailRoughnessMap;
+uniform bool u_useDetailHeightMap;
+uniform vec4 u_detailParams;
+uniform vec4 u_surfaceDetailParams;
 uniform bool u_useBaseColorMap;
 uniform bool u_useMetallicRoughnessMap;
 uniform bool u_useNormalMap;
@@ -335,7 +421,7 @@ uniform vec2 u_viewportSize;
 uniform sampler2D u_faceShadowMap;uniform bool u_useFaceShadowMap;uniform int u_faceShadowTexCoord;uniform vec4 u_mtoonAdvanced;
 uniform sampler2D u_environmentMap;uniform sampler2D u_environmentDiffuseMap;uniform sampler2D u_environmentBrdfLut;uniform vec4 u_environmentMapParams;uniform vec4 u_environmentIblParams;
 uniform sampler2D u_lightMap;uniform bool u_useLightMap;uniform int u_lightMapTexCoord;uniform vec4 u_pbrAdvanced;uniform vec3 u_specularColor;uniform vec4 u_sheenColor;
-uniform vec4 u_waterParams;uniform vec3 u_waterShallowColor;uniform vec3 u_waterDeepColor;uniform vec3 u_waterFoamColor;uniform vec4 u_toonParams3;uniform vec4 u_mtoonAdvanced2;
+uniform vec4 u_waterParams;uniform vec4 u_waterMotion;uniform vec4 u_waterFlowTime;uniform vec3 u_waterShallowColor;uniform vec3 u_waterDeepColor;uniform vec3 u_waterFoamColor;uniform vec4 u_toonParams3;uniform vec4 u_mtoonAdvanced2;
 uniform vec4 u_textureTransform;uniform float u_textureRotation;
 out vec4 outColor;
 vec2 uvSet(int index){
@@ -343,6 +429,20 @@ vec2 uvSet(int index){
   vec2 scaled=uv*u_textureTransform.xy;
   float c=cos(u_textureRotation);float sn=sin(u_textureRotation);
   return vec2(c*scaled.x-sn*scaled.y,sn*scaled.x+c*scaled.y)+u_textureTransform.zw;
+}
+mat3 surfaceBasis(vec2 basisUv,vec3 n){
+  vec3 dp1=dFdx(v_worldPosition);vec3 dp2=dFdy(v_worldPosition);vec2 duv1=dFdx(basisUv);vec2 duv2=dFdy(basisUv);vec3 t;vec3 b;
+  if(length(v_tangent.xyz)>0.0001){t=normalize(v_tangent.xyz-n*dot(n,v_tangent.xyz));b=normalize(cross(n,t))*v_tangent.w;}
+  else{vec3 dp2perp=cross(dp2,n);vec3 dp1perp=cross(n,dp1);t=dp2perp*duv1.x+dp1perp*duv2.x;b=dp2perp*duv1.y+dp1perp*duv2.y;float basisScale=max(dot(t,t),dot(b,b));if(basisScale>0.0000001){float invmax=inversesqrt(basisScale);t*=invmax;b*=invmax;}else{t=normalize(vec3(n.z,0.0,-n.x));b=cross(n,t);}}
+  return mat3(t,b,n);
+}
+vec2 surfaceUv(int index){
+  vec2 uv=uvSet(index);
+  if(index!=0||!u_useDetailHeightMap||u_detailParams.w<=0.0||u_surfaceDetailParams.x<0.5||(u_mode!=1&&u_mode!=6))return uv;
+  vec3 n=normalize(v_normal);if(!gl_FrontFacing)n=-n;mat3 basis=surfaceBasis(uv,n);vec3 viewTs=transpose(basis)*normalize(u_cameraPosition-v_worldPosition);float vz=max(abs(viewTs.z),0.25);vec2 direction=viewTs.xy/vz;
+  float h0=texture(u_detailHeightMap,uv*u_detailParams.x).r-0.5;float h=h0;
+  if(u_surfaceDetailParams.x>1.5){vec2 probe=uv-direction*h0*u_detailParams.w;float h1=texture(u_detailHeightMap,probe*u_detailParams.x).r-0.5;h=(h0+h1)*0.5;}
+  return uv-direction*h*u_detailParams.w;
 }
 vec3 srgbToLinear(vec3 value){
   bvec3 cutoff=lessThanEqual(value,vec3(0.04045));
@@ -424,31 +524,33 @@ vec3 applyColorGrading(vec3 color){
 vec3 finalizeColor(vec3 color,vec3 worldPosition){
   return outputTransform(applyColorGrading(applyAtmosphere(color,worldPosition)));
 }
+vec2 waterFlowDirection(){
+  vec2 direction=u_waterFlowTime.xy;float lengthSquared=dot(direction,direction);return lengthSquared>0.0000001?direction*inversesqrt(lengthSquared):vec2(1.0,0.0);
+}
+vec2 waterAnimatedUv(vec2 uv,float layer){
+  if(u_mode!=6||u_waterMotion.y<=0.0||u_waterMotion.z<=0.0)return uv;
+  vec2 flow=waterFlowDirection();vec2 perpendicular=vec2(-flow.y,flow.x);vec2 direction=layer<0.5?flow:normalize(perpendicular-flow*0.28);float sign=layer<0.5?1.0:-1.0;float rate=(layer<0.5?0.022:0.014)*u_waterMotion.z;return uv+direction*(u_waterFlowTime.z*rate*sign);
+}
+vec3 waterMacroNormal(vec3 n){
+  if(u_mode!=6||u_waterMotion.y<=0.0)return n;
+  vec2 flow=waterFlowDirection();vec2 perpendicular=vec2(-flow.y,flow.x);vec2 diagonal=normalize(flow*0.72+perpendicular*0.69);vec2 p=v_worldPosition.xz*max(u_waterMotion.x,0.0001);float t=u_waterFlowTime.z*u_waterMotion.z;float a=dot(p,flow)+t;float b=dot(p*1.83,perpendicular)-t*1.31;float c=dot(p*0.54,diagonal)+t*0.63;vec2 slope=flow*cos(a)*0.50+perpendicular*cos(b)*0.31+diagonal*cos(c)*0.19;return normalize(n+vec3(-slope.x,0.0,-slope.y)*u_waterMotion.y);
+}
 vec3 surfaceNormal(){
   vec3 n=normalize(v_normal);
   if(!gl_FrontFacing)n=-n;
-  if(!u_useNormalMap)return n;
-  vec2 uv=uvSet(u_normalTexCoord);
-  vec3 mapNormal=texture(u_normalMap,uv).xyz*2.0-1.0;
-  mapNormal.xy*=u_normalScale;
-  vec3 dp1=dFdx(v_worldPosition);
-  vec3 dp2=dFdy(v_worldPosition);
-  vec2 duv1=dFdx(uv);
-  vec2 duv2=dFdy(uv);
-  vec3 t;
-  vec3 b;
-  if(length(v_tangent.xyz)>0.0001){
-    t=normalize(v_tangent.xyz-n*dot(n,v_tangent.xyz));
-    b=normalize(cross(n,t))*v_tangent.w;
-  }else{
-    vec3 dp2perp=cross(dp2,n);
-    vec3 dp1perp=cross(n,dp1);
-    t=dp2perp*duv1.x+dp1perp*duv2.x;
-    b=dp2perp*duv1.y+dp1perp*duv2.y;
-    float scale=max(dot(t,t),dot(b,b));
-    if(scale>0.0000001){float invmax=inversesqrt(scale);t*=invmax;b*=invmax;}else{t=normalize(vec3(n.z,0.0,-n.x));b=cross(n,t);}
+  if(!u_useNormalMap&&!u_useDetailNormalMap)return waterMacroNormal(n);
+  vec2 basisUv=u_useNormalMap?waterAnimatedUv(surfaceUv(u_normalTexCoord),0.0):surfaceUv(0);
+  vec3 mapNormal=vec3(0.0,0.0,1.0);
+  if(u_useNormalMap){
+    mapNormal=texture(u_normalMap,basisUv).xyz*2.0-1.0;
+    mapNormal.xy*=u_normalScale;
   }
-  return normalize(mat3(t,b,n)*mapNormal);
+  if(u_useDetailNormalMap){
+    vec3 detailNormal=texture(u_detailNormalMap,waterAnimatedUv(surfaceUv(0)*u_detailParams.x,1.0)).xyz*2.0-1.0;
+    detailNormal.xy*=u_detailParams.y;
+    mapNormal=normalize(vec3(mapNormal.xy+detailNormal.xy,mapNormal.z*max(detailNormal.z,0.0001)));
+  }
+  return waterMacroNormal(normalize(surfaceBasis(basisUv,n)*mapNormal));
 }
 float distributionGGX(vec3 n,vec3 h,float roughness){
   float a=roughness*roughness;
@@ -516,19 +618,19 @@ float shadowVisibility(vec3 n,vec3 lightDirection){
 void main(){
   vec4 tint=u_baseColor;
   vec4 sampled=vec4(1.0);
-  if(u_useBaseColorMap)sampled=texture(u_baseColorMap,uvSet(u_baseColorTexCoord));
+  if(u_useBaseColorMap)sampled=texture(u_baseColorMap,surfaceUv(u_baseColorTexCoord));
   float alpha=tint.a*v_color.a*sampled.a;
   float coverageNoise=interleavedGradientNoise(gl_FragCoord.xy);
-  if(u_alphaCutoff>0.0){float edge=max(fwidth(alpha),1.0/255.0);float coverage=smoothstep(u_alphaCutoff-edge,u_alphaCutoff+edge,alpha);if(coverage<coverageNoise)discard;alpha=1.0;}
+  if(u_alphaCutoff>0.0){float edge=max(fwidth(alpha),1.0/255.0);float coverage=smoothstep(u_alphaCutoff-edge,u_alphaCutoff+edge,alpha);if(u_alphaCoverage){alpha=coverage;}else{if(coverage<coverageNoise)discard;alpha=1.0;}}
   else if((u_mtoonAdvanced.w>0.5||u_pbrAdvanced.w<0.0)&&alpha<1.0){if(alpha<coverageNoise)discard;alpha=1.0;}
-  float outputAlpha=u_forceOpaqueAlpha?1.0:alpha;
+  float outputAlpha=(u_forceOpaqueAlpha&&!u_alphaCoverage)?1.0:alpha;
   vec3 base=srgbToLinear(tint.rgb)*v_color.rgb*sampled.rgb;
   vec3 color=base;
   if(u_mode==4||u_mode==5){
     vec3 n=surfaceNormal();
     vec3 v=normalize(u_cameraPosition-v_worldPosition);
     float rawAo=1.0;
-    if(u_useOcclusionMap){float sampledAo=texture(u_occlusionMap,uvSet(u_occlusionTexCoord)).r;rawAo=mix(1.0,sampledAo,u_occlusionStrength);}
+    if(u_useOcclusionMap){float sampledAo=texture(u_occlusionMap,surfaceUv(u_occlusionTexCoord)).r;rawAo=mix(1.0,sampledAo,u_occlusionStrength);}
     float ao=u_mode==5?mix(1.0,rawAo,clamp(u_toonParams3.x,0.0,1.0)):rawAo;
     float wrap=u_mode==5?clamp(u_toonParams3.y,0.0,1.0):0.0;
     float giEqualization=u_mode==5?clamp(u_mtoonAdvanced2.x,0.0,1.0):0.0;
@@ -593,7 +695,7 @@ void main(){
       float upper=1.0-toony;
       band=smoothstep(lower-0.002,upper+0.002,shifted);
       vec3 shadeTerm=shadowTint;
-      if(u_useMetallicMap)shadeTerm*=texture(u_metallicMap,uvSet(u_metallicTexCoord)).rgb;
+      if(u_useMetallicMap)shadeTerm*=texture(u_metallicMap,surfaceUv(u_metallicTexCoord)).rgb;
       vec3 lightingTint=mix(vec3(1.0),normalize(max(lightTint,vec3(0.0001))),0.12);
       color=mix(shadeTerm,base,band)*lightingTint*ao;
       vec3 worldViewX=normalize(abs(v.y)<0.999?vec3(v.z,0.0,-v.x):vec3(1.0,0.0,0.0));
@@ -625,19 +727,21 @@ void main(){
       color=mix(color,srgbToLinear(u_toonOutlineColor),clamp(outline,0.0,1.0));
     }
     vec3 emissive=srgbToLinear(u_emissive);
-    if(u_useEmissiveMap)emissive*=texture(u_emissiveMap,uvSet(u_emissiveTexCoord)).rgb;
+    if(u_useEmissiveMap)emissive*=texture(u_emissiveMap,surfaceUv(u_emissiveTexCoord)).rgb;
     color=finalizeColor(color+emissive,v_worldPosition);
   }else if(u_mode==1){
     vec3 n=surfaceNormal();
     vec3 v=normalize(u_cameraPosition-v_worldPosition);
     float metallic=clamp(u_metallic,0.0,1.0);
     float roughness=clamp(u_roughness,0.045,1.0);
-    if(u_useMetallicRoughnessMap){vec4 mr=texture(u_metallicRoughnessMap,uvSet(u_metallicRoughnessTexCoord));roughness*=mr.g;metallic*=mr.b;}
-    if(u_useMetallicMap)metallic*=texture(u_metallicMap,uvSet(u_metallicTexCoord)).r;
-    if(u_useRoughnessMap)roughness*=texture(u_roughnessMap,uvSet(u_roughnessTexCoord)).r;
+    if(u_useMetallicRoughnessMap){vec4 mr=texture(u_metallicRoughnessMap,surfaceUv(u_metallicRoughnessTexCoord));roughness*=mr.g;metallic*=mr.b;}
+    if(u_useMetallicMap)metallic*=texture(u_metallicMap,surfaceUv(u_metallicTexCoord)).r;
+    if(u_useRoughnessMap)roughness*=texture(u_roughnessMap,surfaceUv(u_roughnessTexCoord)).r;
+    if(u_useDetailRoughnessMap){float detailRoughness=texture(u_detailRoughnessMap,surfaceUv(0)*u_detailParams.x).r;roughness=mix(roughness,detailRoughness,clamp(u_detailParams.z,0.0,1.0));}
+    if(u_surfaceDetailParams.y>0.0){vec3 nx=dFdx(n);vec3 ny=dFdy(n);float variance=max(dot(nx,nx),dot(ny,ny));roughness=sqrt(roughness*roughness+min(variance*u_surfaceDetailParams.y,0.18));}
     metallic=clamp(metallic,0.0,1.0);roughness=clamp(roughness,0.045,1.0);
     float ao=1.0;
-    if(u_useOcclusionMap){float sampledAo=texture(u_occlusionMap,uvSet(u_occlusionTexCoord)).r;ao=mix(1.0,sampledAo,u_occlusionStrength);}
+    if(u_useOcclusionMap){float sampledAo=texture(u_occlusionMap,surfaceUv(u_occlusionTexCoord)).r;ao=mix(1.0,sampledAo,u_occlusionStrength);}
     vec3 ambient=base*u_ambient*ao;
     vec3 env=environmentColor(n);vec3 specularEnv=environmentSpecular(reflect(-v,n),roughness);
     float ndotv=max(dot(n,v),0.0);
@@ -679,7 +783,7 @@ void main(){
       lit+=evaluateLight(base,n,v,lightDirection,u_spotColors[i].rgb,attenuation,metallic,roughness);
     }
     vec3 emissive=srgbToLinear(u_emissive);
-    if(u_useEmissiveMap)emissive*=texture(u_emissiveMap,uvSet(u_emissiveTexCoord)).rgb;
+    if(u_useEmissiveMap)emissive*=texture(u_emissiveMap,surfaceUv(u_emissiveTexCoord)).rgb;
     color=lit+emissive;
     float transmission=clamp(u_glassParams.x,0.0,1.0);
     if(transmission>0.0){
@@ -694,7 +798,7 @@ void main(){
     }
     color=finalizeColor(color,v_worldPosition);
   }else if(u_mode==6){
-    vec3 n=surfaceNormal();vec3 v=normalize(u_cameraPosition-v_worldPosition);float ndotv=clamp(dot(n,v),0.0,1.0);float fresnel=pow(1.0-ndotv,max(0.5,u_waterParams.x));float depthHint=clamp(1.0-abs(n.y),0.0,1.0);vec3 shallow=srgbToLinear(u_waterShallowColor);vec3 deep=srgbToLinear(u_waterDeepColor);vec3 water=mix(shallow,deep,clamp(depthHint*u_waterParams.z,0.0,1.0));vec3 reflection=environmentSpecular(reflect(-v,n),clamp(u_roughness,0.045,1.0));color=mix(water,reflection,clamp(fresnel*u_waterParams.y,0.0,1.0));float foam=smoothstep(0.72,1.0,1.0-abs(n.y))*0.18;color=mix(color,srgbToLinear(u_waterFoamColor),foam);color=finalizeColor(color+srgbToLinear(u_emissive),v_worldPosition);outputAlpha=min(outputAlpha,0.82+fresnel*0.18);
+    vec3 n=surfaceNormal();vec3 v=normalize(u_cameraPosition-v_worldPosition);float ndotv=clamp(dot(n,v),0.0,1.0);float legacyFresnel=pow(1.0-ndotv,max(0.5,u_waterParams.x));float dielectricF0=pow((max(1.0,u_glassParams.y)-1.0)/(max(1.0,u_glassParams.y)+1.0),2.0);float physicalFresnel=dielectricF0+(1.0-dielectricF0)*pow(1.0-ndotv,max(0.5,u_waterParams.x));float enhanced=step(0.0001,u_waterMotion.y);float fresnel=mix(legacyFresnel,physicalFresnel,enhanced);float depthHint=clamp(1.0-abs(n.y),0.0,1.0);vec3 shallow=srgbToLinear(u_waterShallowColor);vec3 deep=srgbToLinear(u_waterDeepColor);vec3 water=mix(shallow,deep,clamp(depthHint*u_waterParams.z,0.0,1.0));vec3 reflection=environmentSpecular(reflect(-v,n),clamp(u_roughness,0.045,1.0));color=mix(water,reflection,clamp(fresnel*u_waterParams.y,0.0,1.0));if(enhanced>0.5&&length(u_directionalDirection)>0.0001){vec3 l=-normalize(u_directionalDirection);float ndotl=max(dot(n,l),0.0);if(ndotl>0.0){vec3 h=normalize(l+v);float rough=clamp(u_roughness,0.045,1.0);float d=distributionGGX(n,h,rough);float g=geometrySmith(n,v,l,rough);vec3 f=fresnelSchlick(max(dot(h,v),0.0),vec3(dielectricF0));float visibility=shadowVisibility(n,l);color+=(d*g*f/max(4.0*max(ndotv,0.0001)*ndotl,0.0001))*u_directionalColor*ndotl*visibility*(0.35+u_waterParams.y*0.65);}}float foam=smoothstep(0.72,1.0,1.0-abs(n.y))*u_waterMotion.w;color=mix(color,srgbToLinear(u_waterFoamColor),foam);color=finalizeColor(color+srgbToLinear(u_emissive),v_worldPosition);float legacyAlpha=0.82+fresnel*0.18;float transmissionAlpha=0.16+fresnel*0.80;outputAlpha=min(outputAlpha,mix(legacyAlpha,mix(legacyAlpha,transmissionAlpha,clamp(u_glassParams.x,0.0,1.0)),enhanced));
   }else if(u_mode==0){color=finalizeColor(base,v_worldPosition);}
   else if(u_mode==2){color=surfaceNormal()*0.5+0.5;}
   else if(u_mode==3){color=vec3(gl_FragCoord.z);}
@@ -754,6 +858,8 @@ export class WebGL2Renderer implements RecoverableRenderer {
   private environmentTexture?: WebGLTextureState
   private environmentDiffuseTexture?: WebGLTextureState
   private environmentBrdfTexture?: WebGLTextureState
+  private environmentBackgroundProgram?: EnvironmentBackgroundProgramState
+  private readonly environmentBackgroundInverseViewProjection = new Matrix4()
   private whiteTexture?: WebGLTextureState
   private frameIndex = 0
   private occlusionCuller = new HierarchicalDepthCuller(64)
@@ -761,6 +867,8 @@ export class WebGL2Renderer implements RecoverableRenderer {
   private contextLost = false
   private postProcessPipeline?: WebGLPostProcessPipeline
   private lastFrameTime = 0
+  private waterTimeSeconds = 0
+  private waterLastTimestamp = 0
   private maxPointLights = 8
   private maxSpotLights = 4
   private diagnostics?: RendererDiagnosticSink
@@ -774,6 +882,8 @@ export class WebGL2Renderer implements RecoverableRenderer {
   private readonly spotDirections = new Float32Array(4 * 4)
   private readonly spotColors = new Float32Array(4 * 4)
   private gpuTimerExtension: WebGLDisjointTimerQueryExtension | null = null
+  private alphaToCoverageCapable = false
+  private alphaToCoverageActive = false
   private readonly gpuTimerQueries: WebGLQuery[] = []
 
   async initialize(options: RendererOptions): Promise<void> {
@@ -800,6 +910,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.occlusionCuller = new HierarchicalDepthCuller({ baseResolution: this.optimization.hizResolution, historyFrames: this.optimization.occlusionHistoryFrames, minimumProjectedPixels: this.optimization.occlusionMinimumPixels })
     this.clusterGrid = new ClusteredLightGrid({ dimensions: this.optimization.clusterDimensions, maxLightsPerCluster: this.optimization.maxLightsPerCluster, maxVisibleLights: this.optimization.maxClusteredLights })
     this.gpuTimerExtension = gl.getExtension('EXT_disjoint_timer_query_webgl2') as WebGLDisjointTimerQueryExtension | null
+    this.alphaToCoverageCapable = gl.getContextAttributes?.()?.antialias ?? (options.antialias ?? true)
     this.createPrograms()
     this.postProcessPipeline = new WebGLPostProcessPipeline(gl)
     this.whiteTexture = createWhiteTexture(gl)
@@ -892,6 +1003,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
   renderViewport(scene: Scene, camera: Camera, viewport: WebGLViewport, options: WebGLViewportRenderOptions = {}): void {
     this.assertReady()
     if (this.contextLost) return
+    if (options.updateScene ?? true) this.advanceWaterClock()
     const gl = this.gl as WebGL2RenderingContext
     if (options.resetStats ?? true) resetStats(this.stats)
     this.collectDisposedResources()
@@ -942,11 +1054,13 @@ export class WebGL2Renderer implements RecoverableRenderer {
     const usePostProcess=this.postProcessing.enabled&&options.framebuffer==null&&Boolean(this.postProcessPipeline)
     if(usePostProcess)this.postProcessPipeline?.ensure(Math.max(1,viewport.width),Math.max(1,viewport.height))
     gl.bindFramebuffer(gl.FRAMEBUFFER,usePostProcess?this.postProcessPipeline?.target??null:options.framebuffer??null)
+    this.alphaToCoverageActive = this.alphaToCoverageCapable && Number(gl.getParameter(gl.SAMPLES) ?? 0) > 1
     gl.viewport(viewport.x, viewport.y, Math.max(1, viewport.width), Math.max(1, viewport.height))
     if (options.clear ?? true) {
       gl.clearColor(this.clearColor.r, this.clearColor.g, this.clearColor.b, this.clearColor.a)
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
     }
+    this.drawEnvironmentBackground(camera)
     this.activeProgram = undefined
     const mainStarted = now()
     for (const item of queue.opaque) { this.drawInvertedHull(item, camera); this.drawMesh(item, camera, lights) }
@@ -955,6 +1069,8 @@ export class WebGL2Renderer implements RecoverableRenderer {
     gl.bindVertexArray(null)
     gl.depthMask(true)
     gl.disable(gl.BLEND)
+    gl.disable(gl.SAMPLE_ALPHA_TO_COVERAGE)
+    this.alphaToCoverageActive = false
     this.activeProgram = undefined
     const postStarted = now()
     if(usePostProcess){this.postProcessPipeline?.composite(this.postProcessing,this.imageQuality,this.colorGrading,options.framebuffer??null);this.stats.postProcessPasses+=this.postProcessPipeline?.lastPassCount??1}
@@ -963,6 +1079,34 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.stats.textureEvictions += this.textureResidency.enforce(this.frameIndex)
     this.stats.geometryEvictions += this.geometryResidency.enforce(this.frameIndex)
     this.stats.residencyMs = now() - residencyStarted
+  }
+
+  private drawEnvironmentBackground(camera: Camera): void {
+    const environment = this.environmentMap
+    const texture = this.environmentTexture
+    if (!environment?.background || !texture) return
+    const gl = this.gl as WebGL2RenderingContext
+    const program = this.environmentBackgroundProgram ??= createEnvironmentBackgroundProgramState(gl)
+    this.environmentBackgroundInverseViewProjection.copy(camera.viewProjectionMatrix).invert()
+    const cameraElements = camera.worldMatrix.elements
+    const toneMode = this.colorManagement.toneMapping === 'none' ? 0 : this.colorManagement.toneMapping === 'reinhard' ? 1 : this.colorManagement.toneMapping === 'neutral' ? 3 : 2
+    gl.useProgram(program.program)
+    gl.uniformMatrix4fv(program.inverseViewProjection, false, this.environmentBackgroundInverseViewProjection.elements)
+    gl.uniform3f(program.cameraPosition, cameraElements[12] ?? 0, cameraElements[13] ?? 0, cameraElements[14] ?? 0)
+    gl.uniform4f(program.params, environment.backgroundIntensity ?? 1, environment.rotation ?? 0, environment.format === 'rgba16f-linear' ? 1 : 0, 0)
+    gl.uniform4f(program.outputParams, this.colorManagement.exposure, toneMode, this.colorManagement.outputColorSpace === 'srgb' ? 1 : 0, 0)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, texture.texture)
+    gl.uniform1i(program.environmentMap, 0)
+    gl.disable(gl.DEPTH_TEST); gl.depthMask(false); gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND)
+    gl.bindVertexArray(null)
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+    gl.enable(gl.DEPTH_TEST); gl.depthMask(true); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK)
+    this.stats.drawCalls += 1; this.stats.triangles += 1; this.stats.pipelineChanges += 1
+  }
+
+  private advanceWaterClock(): void {
+    const timestamp=now();const delta=this.waterLastTimestamp>0?Math.min(0.25,Math.max(0,(timestamp-this.waterLastTimestamp)/1000)):0;this.waterLastTimestamp=timestamp;this.waterTimeSeconds=(this.waterTimeSeconds+delta)%4096
   }
 
   private renderShadowMap(items: readonly RenderItem[], lights: SceneLightSummary, camera: Camera): void {
@@ -1002,14 +1146,25 @@ export class WebGL2Renderer implements RecoverableRenderer {
         if(this.optimization.shadowCasterCulling&&!shadowFrustum.intersectsBox(entry.worldBounds))continue
         const program = mesh instanceof InstancedMesh ? this.depthInstanced : this.depthRegular
         if (active !== program.program) {gl.useProgram(program.program);gl.uniformMatrix4fv(program.uniforms.lightViewProjection,false,frame.matrix.elements);active=program.program;this.stats.pipelineChanges+=1}
-        gl.uniformMatrix4fv(program.uniforms.model,false,mesh.worldMatrix.elements);this.stats.uniformUpdates+=1
+        const surface=materialSurface(entry.material)
+        gl.uniformMatrix4fv(program.uniforms.model,false,mesh.worldMatrix.elements)
+        gl.uniform4f(program.uniforms.baseColor,surface?.color.r??1,surface?.color.g??1,surface?.color.b??1,surface?.color.a??1)
+        gl.uniform1f(program.uniforms.alphaCutoff,surface?.alphaCutoff??0)
+        gl.uniform1i(program.uniforms.useBaseColorMap,surface?.baseColor.texture?.ready?1:0)
+        gl.uniform1i(program.uniforms.baseColorTexCoord,surface?.baseColor.texCoord??0)
+        gl.uniform4f(program.uniforms.textureTransform,surface?.textureScale[0]??1,surface?.textureScale[1]??1,surface?.textureOffset[0]??0,surface?.textureOffset[1]??0)
+        gl.uniform1f(program.uniforms.textureRotation,surface?.textureRotation??0)
+        gl.activeTexture(gl.TEXTURE0)
+        gl.bindTexture(gl.TEXTURE_2D,surface?.baseColor.texture?.ready?this.getTexture(surface.baseColor.texture).texture:(this.whiteTexture as WebGLTextureState).texture)
+        if(entry.material.side==='double')gl.disable(gl.CULL_FACE);else{gl.enable(gl.CULL_FACE);gl.cullFace(gl.FRONT)}
+        this.stats.uniformUpdates+=1
         const gpu=this.getGeometry(mesh.geometry);gl.bindVertexArray(gpu.vao)
-        if(mesh instanceof InstancedMesh){this.bindInstances(mesh);this.drawGeometryRange(gpu,entry.start,entry.count,mesh.count);this.stats.triangles+=(entry.count/3)*mesh.count;this.stats.instancedDrawCalls+=1;this.stats.instancesRendered+=mesh.count}
+        if(mesh instanceof InstancedMesh){this.bindInstances(mesh);this.drawGeometryRange(gpu,entry.start,entry.count,mesh.drawCount);this.stats.triangles+=(entry.count/3)*mesh.drawCount;this.stats.instancedDrawCalls+=1;this.stats.instancesRendered+=mesh.drawCount}
         else {this.drawGeometryRange(gpu,entry.start,entry.count,1);this.stats.triangles+=entry.count/3}
         this.stats.drawCalls+=1;this.stats.shadowDrawCalls+=1
       }
     }
-    gl.colorMask(true,true,true,true);gl.cullFace(gl.BACK);gl.bindVertexArray(null);gl.bindFramebuffer(gl.FRAMEBUFFER,null);this.activeProgram=undefined;this.shadowAvailable=true
+    gl.colorMask(true,true,true,true);gl.enable(gl.CULL_FACE);gl.cullFace(gl.BACK);gl.bindVertexArray(null);gl.bindFramebuffer(gl.FRAMEBUFFER,null);this.activeProgram=undefined;this.shadowAvailable=true
   }
 
   private ensureShadowResources(): void {
@@ -1091,7 +1246,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
     const gl = this.gl
     if (gl) {
       for (const gpu of this.geometries.values()) this.deleteGeometry(gl, gpu)
-      for (const instance of this.instances.values()) gl.deleteBuffer(instance.buffer)
+      for (const instance of this.instances.values()) { gl.deleteBuffer(instance.matrixBuffer); gl.deleteBuffer(instance.colorBuffer) }
       for (const texture of this.textures.values()) gl.deleteTexture(texture.texture)
       if (this.whiteTexture) gl.deleteTexture(this.whiteTexture.texture)
       if (this.environmentTexture) gl.deleteTexture(this.environmentTexture.texture)
@@ -1106,6 +1261,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
       if (this.depthInstanced) gl.deleteProgram(this.depthInstanced.program)
       if (this.outlineRegular) gl.deleteProgram(this.outlineRegular.program)
       if (this.outlineInstanced) gl.deleteProgram(this.outlineInstanced.program)
+      if (this.environmentBackgroundProgram) gl.deleteProgram(this.environmentBackgroundProgram.program)
       for (const state of this.shaderPrograms.values()) gl.deleteProgram(state.program)
       for (const query of this.gpuTimerQueries) gl.deleteQuery(query)
     }
@@ -1129,6 +1285,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.depthRegular = undefined
     this.depthInstanced = undefined
     this.outlineRegular = undefined
+    this.environmentBackgroundProgram = undefined
     this.outlineInstanced = undefined
     this.shaderPrograms.clear()
     this.whiteTexture = undefined
@@ -1160,10 +1317,10 @@ export class WebGL2Renderer implements RecoverableRenderer {
     gl.bindVertexArray(gpu.vao)
     if (mesh instanceof InstancedMesh) {
       this.bindInstances(mesh)
-      this.drawGeometryRange(gpu, item.start, item.count, mesh.count)
-      this.stats.triangles += (item.count / 3) * mesh.count
+      this.drawGeometryRange(gpu, item.start, item.count, mesh.drawCount)
+      this.stats.triangles += (item.count / 3) * mesh.drawCount
       this.stats.instancedDrawCalls += 1
-      this.stats.instancesRendered += mesh.count
+      this.stats.instancesRendered += mesh.drawCount
     } else {
       this.drawGeometryRange(gpu, item.start, item.count, 1)
       this.stats.triangles += item.count / 3
@@ -1301,6 +1458,9 @@ export class WebGL2Renderer implements RecoverableRenderer {
       gl.uniform1i(program.uniforms.lightMap,10)
       gl.uniform1i(program.uniforms.environmentDiffuseMap,11)
       gl.uniform1i(program.uniforms.environmentBrdfLut,12)
+      gl.uniform1i(program.uniforms.detailNormalMap,13)
+      gl.uniform1i(program.uniforms.detailRoughnessMap,14)
+      gl.uniform1i(program.uniforms.detailHeightMap,15)
       gl.activeTexture(gl.TEXTURE9);gl.bindTexture(gl.TEXTURE_2D,(this.environmentTexture??this.whiteTexture as WebGLTextureState).texture)
       gl.activeTexture(gl.TEXTURE11);gl.bindTexture(gl.TEXTURE_2D,(this.environmentDiffuseTexture??this.environmentTexture??this.whiteTexture as WebGLTextureState).texture)
       gl.activeTexture(gl.TEXTURE12);gl.bindTexture(gl.TEXTURE_2D,(this.environmentBrdfTexture??this.whiteTexture as WebGLTextureState).texture)
@@ -1329,6 +1489,8 @@ export class WebGL2Renderer implements RecoverableRenderer {
     gl.uniform3f(uniforms.emissive, ...surface.emissive)
     gl.uniform1i(uniforms.mode, surface.mode)
     gl.uniform1f(uniforms.alphaCutoff, surface.alphaCutoff)
+    const alphaCoverage = surface.alphaCutoff > 0 && this.alphaToCoverageActive && !material.transparent
+    gl.uniform1i(uniforms.alphaCoverage, alphaCoverage ? 1 : 0)
     gl.uniform1f(uniforms.metallic, surface.metallic)
     gl.uniform1f(uniforms.roughness, surface.roughness)
     gl.uniform1f(uniforms.normalScale, surface.normalScale)
@@ -1352,6 +1514,11 @@ export class WebGL2Renderer implements RecoverableRenderer {
     gl.uniform3f(uniforms.specularColor,surface.specularColor.r,surface.specularColor.g,surface.specularColor.b)
     gl.uniform4f(uniforms.sheenColor,surface.sheenColor.r,surface.sheenColor.g,surface.sheenColor.b,surface.sheenRoughness)
     gl.uniform4f(uniforms.waterParams,surface.waterParams[0],surface.waterParams[1],surface.waterParams[2],surface.lightMapIntensity)
+    gl.uniform4f(uniforms.waterMotion,...surface.waterMotion)
+    gl.uniform4f(uniforms.waterFlowTime,surface.waterFlow[0],surface.waterFlow[1],this.waterTimeSeconds,0)
+    gl.uniform4f(uniforms.detailParams,surface.detailScale,surface.detailNormalStrength,surface.detailRoughnessStrength,surface.detailHeightScale)
+    const surfaceDetailLevel=this.imageQuality.surfaceDetail==='off'?0:this.imageQuality.surfaceDetail==='high'?2:1
+    gl.uniform4f(uniforms.surfaceDetailParams,surfaceDetailLevel,surfaceDetailLevel===0?0:surfaceDetailLevel===2?0.4:0.25,0,0)
     gl.uniform3f(uniforms.waterShallowColor,surface.waterShallowColor.r,surface.waterShallowColor.g,surface.waterShallowColor.b)
     gl.uniform3f(uniforms.waterDeepColor,surface.waterDeepColor.r,surface.waterDeepColor.g,surface.waterDeepColor.b)
     gl.uniform3f(uniforms.waterFoamColor,surface.waterFoamColor.r,surface.waterFoamColor.g,surface.waterFoamColor.b)
@@ -1364,18 +1531,22 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.bindSurfaceTexture(6, surface.roughnessTexture, uniforms.useRoughnessMap, uniforms.roughnessTexCoord)
     this.bindSurfaceTexture(8, surface.faceShadow, uniforms.useFaceShadowMap, uniforms.faceShadowTexCoord)
     this.bindSurfaceTexture(10, surface.lightMap, uniforms.useLightMap, uniforms.lightMapTexCoord)
+    this.bindSurfaceTexture(13, surface.detailNormal, uniforms.useDetailNormalMap, null)
+    this.bindSurfaceTexture(14, surface.detailRoughness, uniforms.useDetailRoughnessMap, null)
+    this.bindSurfaceTexture(15, surface.detailHeight, uniforms.useDetailHeightMap, null)
     this.reportUnsupportedMaterial(mesh, material)
     if (material.side === 'double') gl.disable(gl.CULL_FACE)
     else { gl.enable(gl.CULL_FACE); gl.cullFace(material.side === 'back' ? gl.FRONT : gl.BACK) }
     if (material.transparent) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA) } else gl.disable(gl.BLEND)
+    if (alphaCoverage) gl.enable(gl.SAMPLE_ALPHA_TO_COVERAGE); else gl.disable(gl.SAMPLE_ALPHA_TO_COVERAGE)
     gl.depthMask(material.depthWrite)
     gl.bindVertexArray(gpu.vao)
     if (mesh instanceof InstancedMesh) {
       this.bindInstances(mesh)
-      this.drawGeometryRange(gpu, item.start, item.count, mesh.count)
-      this.stats.triangles += (item.count / 3) * mesh.count
+      this.drawGeometryRange(gpu, item.start, item.count, mesh.drawCount)
+      this.stats.triangles += (item.count / 3) * mesh.drawCount
       this.stats.instancedDrawCalls += 1
-      this.stats.instancesRendered += mesh.count
+      this.stats.instancesRendered += mesh.drawCount
     } else {
       this.drawGeometryRange(gpu, item.start, item.count, 1)
       this.stats.triangles += item.count / 3
@@ -1433,6 +1604,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
   }
 
   private drawGeometryRange(gpu: WebGLGeometry, start: number, count: number, instanceCount: number): void {
+    if (instanceCount <= 0) return
     const gl = this.gl as WebGL2RenderingContext
     if (gpu.indexed) {
       const offset = start * (gpu.indexType === gl.UNSIGNED_INT ? 4 : 2)
@@ -1457,23 +1629,39 @@ export class WebGL2Renderer implements RecoverableRenderer {
     const gl = this.gl as WebGL2RenderingContext
     let state = this.instances.get(mesh)
     if (!state) {
-      const buffer = gl.createBuffer()
-      if (!buffer) throw new Error('WebGL2 failed to allocate an instance buffer.')
-      state = { buffer, version: -1, bytes: mesh.instanceMatrices.byteLength }
+      const matrixBuffer = gl.createBuffer()
+      const colorBuffer = gl.createBuffer()
+      if (!matrixBuffer || !colorBuffer) { if (matrixBuffer) gl.deleteBuffer(matrixBuffer); if (colorBuffer) gl.deleteBuffer(colorBuffer); throw new Error('WebGL2 failed to allocate instance buffers.') }
+      state = { matrixBuffer, colorBuffer, matrixVersion: -1, colorVersion: -1, bytes: mesh.instanceMatrices.byteLength + mesh.instanceColors.byteLength }
       this.instances.set(mesh, state)
       this.stats.geometryMemory += state.bytes
-      this.stats.geometryUploads += 1
-      this.stats.gpuResourceCreations += 1
-      this.stats.gpuResourceCreationsThisFrame += 1
+      this.stats.geometryUploads += 2
+      this.stats.gpuResourceCreations += 2
+      this.stats.gpuResourceCreationsThisFrame += 2
     }
-    gl.bindBuffer(gl.ARRAY_BUFFER, state.buffer)
-    if (state.version !== mesh.instanceVersion) { gl.bufferData(gl.ARRAY_BUFFER, mesh.instanceMatrices, gl.DYNAMIC_DRAW); state.version = mesh.instanceVersion; this.stats.uniformUpdates += 1 }
+    gl.bindBuffer(gl.ARRAY_BUFFER, state.matrixBuffer)
+    if (state.matrixVersion !== mesh.instanceVersion) {
+      if (state.matrixVersion < 0) gl.bufferData(gl.ARRAY_BUFFER, mesh.instanceMatrices, gl.DYNAMIC_DRAW)
+      else gl.bufferSubData(gl.ARRAY_BUFFER, 0, mesh.instanceMatrices)
+      state.matrixVersion = mesh.instanceVersion
+      this.stats.uniformUpdates += 1
+    }
     for (let column = 0; column < 4; column += 1) {
       const location = 3 + column
       gl.enableVertexAttribArray(location)
       gl.vertexAttribPointer(location, 4, gl.FLOAT, false, 64, column * 16)
       gl.vertexAttribDivisor(location, 1)
     }
+    gl.bindBuffer(gl.ARRAY_BUFFER, state.colorBuffer)
+    if (state.colorVersion !== mesh.instanceColorVersion) {
+      if (state.colorVersion < 0) gl.bufferData(gl.ARRAY_BUFFER, mesh.instanceColors, gl.DYNAMIC_DRAW)
+      else gl.bufferSubData(gl.ARRAY_BUFFER, 0, mesh.instanceColors)
+      state.colorVersion = mesh.instanceColorVersion
+      this.stats.uniformUpdates += 1
+    }
+    gl.enableVertexAttribArray(10)
+    gl.vertexAttribPointer(10, 4, gl.FLOAT, false, 16, 0)
+    gl.vertexAttribDivisor(10, 1)
   }
 
   private createPrograms(): void {
@@ -1643,7 +1831,8 @@ export class WebGL2Renderer implements RecoverableRenderer {
       this.geometryResidency.remove(geometry)
     }
     for (const [mesh, state] of this.instances) if (mesh.disposed) {
-      gl.deleteBuffer(state.buffer)
+      gl.deleteBuffer(state.matrixBuffer)
+      gl.deleteBuffer(state.colorBuffer)
       this.stats.geometryMemory = Math.max(0, this.stats.geometryMemory - state.bytes)
       this.instances.delete(mesh)
     }
@@ -1750,8 +1939,33 @@ function createOutlineProgramState(gl: WebGL2RenderingContext, vertex: string, f
 }
 function createDepthProgramState(gl: WebGL2RenderingContext, vertex: string, fragment: string): DepthProgramState {
   const program = createProgram(gl, vertex, fragment)
-  return { program, uniforms: { model: gl.getUniformLocation(program, 'u_model'), lightViewProjection: gl.getUniformLocation(program, 'u_lightViewProjection') } }
+  const uniforms: DepthUniforms = {
+    model: gl.getUniformLocation(program, 'u_model'),
+    lightViewProjection: gl.getUniformLocation(program, 'u_lightViewProjection'),
+    baseColor: gl.getUniformLocation(program, 'u_baseColor'),
+    alphaCutoff: gl.getUniformLocation(program, 'u_alphaCutoff'),
+    baseColorMap: gl.getUniformLocation(program, 'u_baseColorMap'),
+    useBaseColorMap: gl.getUniformLocation(program, 'u_useBaseColorMap'),
+    baseColorTexCoord: gl.getUniformLocation(program, 'u_baseColorTexCoord'),
+    textureTransform: gl.getUniformLocation(program, 'u_textureTransform'),
+    textureRotation: gl.getUniformLocation(program, 'u_textureRotation'),
+  }
+  gl.useProgram(program)
+  gl.uniform1i(uniforms.baseColorMap, 0)
+  return { program, uniforms }
 }
+function createEnvironmentBackgroundProgramState(gl: WebGL2RenderingContext): EnvironmentBackgroundProgramState {
+  const program = createProgram(gl, environmentBackgroundVertex, environmentBackgroundFragment)
+  return {
+    program,
+    inverseViewProjection: gl.getUniformLocation(program, 'u_inverseViewProjection'),
+    cameraPosition: gl.getUniformLocation(program, 'u_cameraPosition'),
+    environmentMap: gl.getUniformLocation(program, 'u_environmentMap'),
+    params: gl.getUniformLocation(program, 'u_params'),
+    outputParams: gl.getUniformLocation(program, 'u_outputParams'),
+  }
+}
+
 function createProgramState(gl: WebGL2RenderingContext, vertex: string, fragment: string): ProgramState {
   const program = createProgram(gl, vertex, fragment)
   const uniform = (name: string): WebGLUniformLocation | null => gl.getUniformLocation(program, name)
@@ -1773,6 +1987,7 @@ function createProgramState(gl: WebGL2RenderingContext, vertex: string, fragment
     spotCount: uniform('u_spotCount'),
     mode: uniform('u_mode'),
     alphaCutoff: uniform('u_alphaCutoff'),
+    alphaCoverage: uniform('u_alphaCoverage'),
     metallic: uniform('u_metallic'),
     roughness: uniform('u_roughness'),
     normalScale: uniform('u_normalScale'),
@@ -1801,6 +2016,14 @@ function createProgramState(gl: WebGL2RenderingContext, vertex: string, fragment
     useRoughnessMap: uniform('u_useRoughnessMap'),
     metallicTexCoord: uniform('u_metallicTexCoord'),
     roughnessTexCoord: uniform('u_roughnessTexCoord'),
+    detailNormalMap: uniform('u_detailNormalMap'),
+    detailRoughnessMap: uniform('u_detailRoughnessMap'),
+    detailHeightMap: uniform('u_detailHeightMap'),
+    useDetailNormalMap: uniform('u_useDetailNormalMap'),
+    useDetailRoughnessMap: uniform('u_useDetailRoughnessMap'),
+    useDetailHeightMap: uniform('u_useDetailHeightMap'),
+    detailParams: uniform('u_detailParams'),
+    surfaceDetailParams: uniform('u_surfaceDetailParams'),
     outputParams: uniform('u_outputParams'),
     environmentSky: uniform('u_environmentSky'),
     environmentGround: uniform('u_environmentGround'),
@@ -1844,6 +2067,8 @@ function createProgramState(gl: WebGL2RenderingContext, vertex: string, fragment
     specularColor: uniform('u_specularColor'),
     sheenColor: uniform('u_sheenColor'),
     waterParams: uniform('u_waterParams'),
+    waterMotion: uniform('u_waterMotion'),
+    waterFlowTime: uniform('u_waterFlowTime'),
     waterShallowColor: uniform('u_waterShallowColor'),
     waterDeepColor: uniform('u_waterDeepColor'),
     waterFoamColor: uniform('u_waterFoamColor'),
@@ -1869,7 +2094,7 @@ function packShaderUniforms(values: Iterable<UniformValue>, target: Float32Array
   }
 }
 function emptyBinding(texture?: Texture, texCoord: 0 | 1 = 0): TextureBinding { return { texture, texCoord } }
-function defaultToonSurface(){return { textureScale:[1,1] as const,textureOffset:[0,0] as const,textureRotation:0,toonParams:[3,0.58,0.2,0.18] as const,toonParams2:[2.5,0.68,5,0] as const,toonParams3:[0.08,0,0.18,0] as const,mtoonAdvanced2:[0.12,0.08,0,0] as const,toonShadowColor:Color.from('#66708f'),toonHighlightColor:Color.from('#fff4df'),toonRimColor:Color.from('#ffd7e8'),toonOutlineColor:Color.from('#201a2a'),faceShadow:emptyBinding(),faceShadowStrength:0,faceShadowFlipX:false,hairAlphaDither:false,outlineWidth:0,lightMap:emptyBinding(),lightMapIntensity:1,specularFactor:1,specularColor:Color.from('#ffffff'),clearcoat:0,clearcoatRoughness:0.1,sheenColor:Color.from('#ffffff'),sheenIntensity:0,sheenRoughness:0.5,alphaDither:false,waterParams:[5,0.78,1,1] as const,waterShallowColor:Color.from('#55b8d6'),waterDeepColor:Color.from('#0a3f67'),waterFoamColor:Color.from('#e8fbff') }}
+function defaultToonSurface(){return { detailNormal:emptyBinding(),detailRoughness:emptyBinding(),detailHeight:emptyBinding(),detailScale:1,detailNormalStrength:0,detailRoughnessStrength:0,detailHeightScale:0,textureScale:[1,1] as const,textureOffset:[0,0] as const,textureRotation:0,toonParams:[3,0.58,0.2,0.18] as const,toonParams2:[2.5,0.68,5,0] as const,toonParams3:[0.08,0,0.18,0] as const,mtoonAdvanced2:[0.12,0.08,0,0] as const,toonShadowColor:Color.from('#66708f'),toonHighlightColor:Color.from('#fff4df'),toonRimColor:Color.from('#ffd7e8'),toonOutlineColor:Color.from('#201a2a'),faceShadow:emptyBinding(),faceShadowStrength:0,faceShadowFlipX:false,hairAlphaDither:false,outlineWidth:0,lightMap:emptyBinding(),lightMapIntensity:1,specularFactor:1,specularColor:Color.from('#ffffff'),clearcoat:0,clearcoatRoughness:0.1,sheenColor:Color.from('#ffffff'),sheenIntensity:0,sheenRoughness:0.5,alphaDither:false,waterParams:[5,0.78,1,1] as const,waterMotion:[0.45,0,0.35,0.18] as const,waterFlow:[0.9438583563660174,0.33035042472810605] as const,waterShallowColor:Color.from('#55b8d6'),waterDeepColor:Color.from('#0a3f67'),waterFoamColor:Color.from('#e8fbff') }}
 function materialSurface(material: Material): MaterialSurface | null {
   if (material instanceof StandardMaterial) return {
     color: material.baseColor,
@@ -1891,6 +2116,13 @@ function materialSurface(material: Material): MaterialSurface | null {
     occlusion: emptyBinding(material.occlusionTexture, material.occlusionTexCoord),
     metallicTexture: material.shadingModel === 'mtoon' ? emptyBinding(material.mtoonShadeTexture, material.mtoonShadeTexCoord) : emptyBinding(material.metallicTexture, material.metallicTexCoord),
     roughnessTexture: material.shadingModel === 'mtoon' ? emptyBinding(material.mtoonMatcapTexture, material.mtoonMatcapTexCoord) : emptyBinding(material.roughnessTexture, material.roughnessTexCoord),
+    detailNormal: emptyBinding(material.detailNormalTexture),
+    detailRoughness: emptyBinding(material.detailRoughnessTexture),
+    detailHeight: emptyBinding(material.detailHeightTexture),
+    detailScale: material.detailScale,
+    detailNormalStrength: material.detailNormalTexture ? material.detailNormalStrength : 0,
+    detailRoughnessStrength: material.detailRoughnessTexture ? material.detailRoughnessStrength : 0,
+    detailHeightScale: material.detailHeightTexture ? material.detailHeightScale : 0,
     transmission: material.transmission,
     ior: material.ior,
     thickness: material.thickness,
@@ -1924,6 +2156,8 @@ function materialSurface(material: Material): MaterialSurface | null {
     toonParams3: material.shadingModel === 'mtoon' ? [material.mtoonOcclusionMix,material.characterSoftLighting,material.characterEyeHighlightStrength,material.characterHairSpecularStrength] : [material.toonBandSmoothness,material.toonShadowOffset,material.toonEnvironmentMix,0],
     mtoonAdvanced2: material.shadingModel === 'mtoon' ? [material.mtoonGiEqualization,material.mtoonRimLift,material.mtoonShadingShiftTextureScale,material.mtoonShadingShiftTexture?1:(material.faceShadowTexture?2:0)] : [material.mtoonEnvironmentMix,material.mtoonFaceShadowSoftness,0,0],
     waterParams: [material.waterFresnelPower,material.waterReflectionStrength,material.waterAbsorptionStrength,material.lightMapIntensity],
+    waterMotion: [material.waterWaveScale,material.waterWaveStrength,material.waterWaveSpeed,material.waterFoamStrength],
+    waterFlow: material.waterFlowDirection,
     waterShallowColor: material.waterShallowColor,
     waterDeepColor: material.waterDeepColor,
     waterFoamColor: material.waterFoamColor
