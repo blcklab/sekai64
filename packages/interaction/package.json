@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/interaction",
-  "version": "0.8.0-rc.35",
+  "version": "0.8.0-rc.43",
   "description": "Private Sekai64 workspace module: interaction. Bundled into @blcklab/sekai64.",
   "type": "module",
   "sideEffects": false,
@@ -24,11 +24,11 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@sekai64-internal/cameras": "0.8.0-rc.35",
-    "@sekai64-internal/core": "0.8.0-rc.35",
-    "@sekai64-internal/geometry": "0.8.0-rc.35",
-    "@sekai64-internal/math": "0.8.0-rc.35",
-    "@sekai64-internal/scene": "0.8.0-rc.35"
+    "@sekai64-internal/cameras": "0.8.0-rc.43",
+    "@sekai64-internal/core": "0.8.0-rc.43",
+    "@sekai64-internal/geometry": "0.8.0-rc.43",
+    "@sekai64-internal/math": "0.8.0-rc.43",
+    "@sekai64-internal/scene": "0.8.0-rc.43"
   },
   "license": "MIT",
   "author": "blcklab",

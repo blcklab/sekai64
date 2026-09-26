@@ -73,3 +73,101 @@ describe('Mesh resource replacement', () => {
     material.dispose()
   })
 })
+
+import { PlaneGeometry } from '@sekai64-internal/geometry'
+import { Matrix4 } from '@sekai64-internal/math'
+import { ParticleEmitter } from './ParticleEmitter.js'
+
+class TestBillboardCamera {
+  readonly worldMatrix = new Matrix4()
+  updateWorldFromRoot(): void {}
+}
+
+describe('ParticleEmitter', () => {
+  it('uses deterministic typed-array initial state and compact active draw counts', () => {
+    const geometry = new PlaneGeometry()
+    const material = new BasicMaterial({ transparent: true })
+    const options = {
+      geometry,
+      material,
+      seed: 8127,
+      maxParticles: 32,
+      emissionRate: 0,
+      burst: 8,
+      lifetime: { min: 2, max: 4 },
+      spawnShape: { type: 'box' as const, size: [5, 1, 5] as const },
+      velocity: { min: [-0.2, 0.3, -0.2] as const, max: [0.2, 1, 0.2] as const },
+      size: { min: 0.02, max: 0.08 },
+      quality: 'ultra' as const,
+    }
+    const first = new ParticleEmitter(options)
+    const second = new ParticleEmitter(options)
+    const camera = new TestBillboardCamera()
+    first.update(0, camera)
+    second.update(0, camera)
+
+    expect(first.activeParticles).toBe(8)
+    expect(first.drawCount).toBe(8)
+    expect(Array.from(first.positions.slice(0, 24))).toEqual(Array.from(second.positions.slice(0, 24)))
+    expect(Array.from(first.velocities.slice(0, 24))).toEqual(Array.from(second.velocities.slice(0, 24)))
+    expect(Array.from(first.lifetimes.slice(0, 8))).toEqual(Array.from(second.lifetimes.slice(0, 8)))
+    expect(Array.from(first.particleSizes.slice(0, 8))).toEqual(Array.from(second.particleSizes.slice(0, 8)))
+    expect(first.positions).toBeInstanceOf(Float32Array)
+    expect(first.velocities).toBeInstanceOf(Float32Array)
+
+    first.reset().update(0, camera)
+    expect(Array.from(first.positions.slice(0, 24))).toEqual(Array.from(second.positions.slice(0, 24)))
+    first.dispose(); second.dispose(); geometry.dispose(); material.dispose()
+  })
+
+  it('supports point, box, sphere, and surface spawn shapes with renderer-owned quality budgets', () => {
+    const camera = new TestBillboardCamera()
+    for (const spawnShape of [
+      { type: 'point' as const },
+      { type: 'box' as const, size: [2, 3, 4] as const },
+      { type: 'sphere' as const, radius: 2 },
+      { type: 'surface' as const, size: [3, 1, 5] as const },
+    ]) {
+      const geometry = new PlaneGeometry()
+      const material = new BasicMaterial({ transparent: true })
+      const emitter = new ParticleEmitter({ geometry, material, maxParticles: 100, burst: 100, spawnShape, quality: 'low', importance: 0.5 })
+      emitter.update(0, camera)
+      expect(emitter.activeParticles).toBe(emitter.budgetParticles)
+      expect(emitter.activeParticles).toBeLessThan(100)
+      expect(emitter.drawCount).toBe(emitter.activeParticles)
+      emitter.quality = 'ultra'
+      expect(emitter.budgetParticles).toBeGreaterThan(emitter.activeParticles)
+      emitter.dispose(); geometry.dispose(); material.dispose()
+    }
+  })
+
+  it('simulates force, drag, lifetime, and camera-facing billboards without per-particle nodes', () => {
+    const geometry = new PlaneGeometry()
+    const material = new BasicMaterial({ transparent: true })
+    const emitter = new ParticleEmitter({
+      geometry,
+      material,
+      seed: 4,
+      maxParticles: 4,
+      burst: 1,
+      lifetime: { min: 1, max: 1 },
+      velocity: { min: [1, 0, 0], max: [1, 0, 0] },
+      gravity: [0, -1, 0],
+      drag: 0.1,
+      size: { min: 0.5, max: 0.5 },
+      rotation: { min: 0, max: 0 },
+      quality: 'ultra',
+    })
+    const camera = new TestBillboardCamera()
+    emitter.update(0, camera)
+    expect(emitter.children).toHaveLength(0)
+    emitter.update(0.5, camera)
+    expect(emitter.positions[0]).toBeGreaterThan(0)
+    expect(emitter.positions[1]).toBeLessThan(0)
+    expect(emitter.instanceMatrices[0]).toBeCloseTo(0.5)
+    expect(emitter.instanceMatrices[5]).toBeCloseTo(0.5)
+    emitter.update(0.5, camera)
+    expect(emitter.activeParticles).toBe(0)
+    emitter.dispose(); geometry.dispose(); material.dispose()
+  })
+})

@@ -1,3 +1,64 @@
+# 0.8.0-rc.43 — procedural cloud quality
+
+- Improved the existing procedural HDR sky cloud layer in place; no `CloudRenderer`, `CloudSystem`, cloud scene nodes, volume pass, or new package was introduced.
+- Replaced the old single-fBm threshold with a deterministic large/medium/small cloud field that adds broad masses, medium breakup, and fine erosion while preserving the existing `cloudCoverage`, `cloudDensity`, `cloudScale`, and `cloudSeed` authoring contract.
+- Added a lightweight pseudo-normal derived from the same deterministic cloud field so sun-facing regions receive warmer light, shadowed regions stay cooler, interiors retain depth, and bright edges can form without an extra render pass.
+- Cloud shading now scales with procedural-sky sun intensity, so zero-sun night skies do not receive daytime silver-lining energy.
+- The improved cloud layer remains part of the same one-time `EnvironmentResource`, so WebGL2/WebGPU automatically share identical environment/background pixels and cloud density does not create per-cloud draw calls or runtime simulation.
+- Focused tests cover determinism, upper-hemisphere confinement, multi-scale edge structure, warm/cool response, forbidden cloud-system boundaries, and bounded 512x256 generation cost.
+- Mesh-cloud drift/shape quality remains authored through generic Anyo geometry/composition/animation systems; true volumetric rendering is intentionally reserved for the Step 11 decision gate.
+
+# 0.8.0-rc.42 — procedural night sky and environment background
+
+- Extended the existing procedural HDR sky generator with deterministic seeded star distribution, bounded density, brightness variation, size variation, and warm/cool color-temperature variation; no `StarSystem` or per-star scene Nodes were introduced.
+- Added one generic optional environment-background presentation path. WebGL2 and WebGPU reconstruct world viewing direction from inverse view-projection plus camera position, so the environment behaves as an infinite background and remains invariant to camera translation.
+- The visible background reuses the same environment texture already used for IBL/reflections, adding one fullscreen triangle only when `environmentMap.background` is enabled. Existing environment maps keep background drawing disabled by default.
+- Bright procedural stars retain HDR energy before LDR conversion so existing exposure/bloom can respond naturally; star generation is one-time resource authoring, not per-frame simulation.
+- Focused tests cover seed determinism, upper-hemisphere placement, density scaling, bounded generation time, translation-invariant ray reconstruction, and single-draw WebGL2/WebGPU parity.
+- Real moving-camera WebGL2/WebGPU visual acceptance remains a maintainer-machine gate before publication.
+
+# 0.8.0-rc.41 — generic water quality
+
+- Extended the existing `StandardMaterial` water shading path with opt-in renderer-owned multi-scale surface motion, directional flow, bounded renderer time, and configurable slope foam; no `WaterSystem`, ocean subsystem, or new render pass was introduced.
+- `water.waveStrength` defaults to `0`, preserving the complete pre-Step-08 static water branch for existing direct Sekai64 and Anyo content.
+- WebGL2 and WebGPU use the same water intent and shader structure: animated base/detail normal UVs, lightweight world-space macro-normal motion, IOR-derived Fresnel on the enhanced path, environment reflection, directional GGX highlights, and transmission-aware alpha.
+- Existing PBR detail normals, texture transforms, environment lighting, shadows, transmission, and IOR are reused instead of duplicated. Renderer time is clamped per frame and wrapped periodically for long-session numerical stability.
+- True scene-color refraction / scene-depth reconstruction remains deferred because it requires a dedicated sampled scene-color/depth architecture and would be disproportionate for this step.
+- Real moving-camera WebGL2/WebGPU visual acceptance remains a maintainer-machine gate before publication.
+
+# 0.8.0-rc.40 — alpha / thin-geometry stability
+
+- Added renderer-owned MSAA alpha-to-coverage for masked materials in WebGL2 and WebGPU; non-MSAA/post-process targets keep the existing derivative-smoothed stochastic mask fallback.
+- Masked shadow casters now sample base-color alpha with the same UV transform/texcoord choice and per-instance alpha, preventing leaves, fences, hair cards, and other cutout geometry from casting solid rectangular shadows.
+- Double-sided thin geometry now remains double-sided in directional-shadow passes instead of inheriting front-face shadow culling.
+- WebGPU shadow uniforms are isolated per mesh + material + cascade so grouped/multi-material meshes bind the correct alpha texture without per-frame bind-group churn.
+- Reused existing mip generation/filtering, stochastic coverage, and MToon hair dithering; no vegetation-specific renderer, new Anyo schema knob, or extra color render pass was introduced.
+- Stable cross-LOD fading remains deferred because the current render queue selects one LOD at a time; adding dual-LOD overlap solely for this pass would expand the render architecture disproportionately.
+
+# 0.8.0-rc.39 — particle quality and lifetime appearance
+
+- Extended the generic `ParticleEmitter` with normalized lifetime size, opacity, color, and rotation ramps while keeping compact typed-array simulation and one instanced draw path.
+- Added generic per-instance RGBA to `InstancedMesh`; WebGL2 and WebGPU upload persistent matrix/color instance buffers in place instead of creating per-frame particle resources.
+- Added renderer-owned distance density/fade policy keyed by particle quality and emitter importance, including smooth far fade/cull without exposing backend distances or particle counts to Anyo JSON.
+- Preserved deterministic simulation and the same generic emitter state across WebGL2/WebGPU; no rain/snow/fire/smoke-specific branches or second animation system were introduced.
+- True depth-aware soft-particle intersection was investigated but deferred: the current main render pass cannot safely sample its active depth attachment, so correct support would require an opaque-depth resolve or a separate transparent-particle pass rather than a fake screen-space approximation.
+
+# 0.8.0-rc.37 — lightweight height detail + specular stability
+
+- Added an optional generic detail-height channel to `StandardMaterial`; source-backed height maps use the same mip-safe detail texture path as detail normal/roughness.
+- Added renderer-owned `surfaceDetail` quality policy (`off`, `balanced`, `high`) without exposing shader loop counts to Anyo world JSON.
+- WebGL2 and WebGPU now apply matching lightweight view-dependent parallax; `high` adds one refinement sample rather than full parallax-occlusion mapping.
+- Added inexpensive derivative-based specular stabilization for materials opting into micro-detail, keeping legacy materials visually unchanged.
+- No extra render pass or object-specific subsystem was introduced.
+
+# 0.8.0-rc.36 — pixel-level material detail
+
+- Added optional high-frequency detail normal and detail roughness channels to `StandardMaterial` without changing existing material defaults.
+- Added shared detail UV scale, normal strength, and roughness blend controls while keeping authoring renderer-neutral.
+- WebGL2 and WebGPU use matching tangent-space detail-normal blending and matching PBR detail-roughness sampling.
+- Source-backed detail maps default to trilinear mip filtering with generated mipmaps; externally supplied textures retain their authored sampler policy.
+- Detail textures are batched through the existing material texture path; no new render pass or object-specific renderer was introduced.
+
 # 0.8.0-rc.35 — generic material UV mapping controls
 
 - Added a lightweight `textureTransform` contract to `StandardMaterial` with shared UV scale, offset, and rotation.

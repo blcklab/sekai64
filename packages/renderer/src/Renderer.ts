@@ -35,6 +35,10 @@ export interface RendererEnvironmentMap extends RendererEnvironmentLevel {
   brdfLut?: Readonly<RendererEnvironmentLevel>
   intensity?: number
   rotation?: number
+  /** Draw this environment as a camera-rotation-stable background. Defaults to false for compatibility. */
+  background?: boolean
+  /** Independent visible-background intensity; does not change IBL/specular intensity. */
+  backgroundIntensity?: number
   label?: string
 }
 

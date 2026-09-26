@@ -31,7 +31,9 @@ const textures = [
   texture('metallic-roughness', 'linear'),
   texture('normal', 'linear'),
   texture('emissive', 'srgb'),
-  texture('occlusion', 'linear', false, 'linear-mipmap-nearest')
+  texture('occlusion', 'linear', false, 'linear-mipmap-nearest'),
+  texture('detail-normal', 'linear', true),
+  texture('detail-roughness', 'linear', true)
 ]
 const material = new StandardMaterial({
   baseColor: [0.8, 0.7, 0.6, 0.75],
@@ -46,6 +48,7 @@ const material = new StandardMaterial({
   emissiveTexture: textures[3],
   occlusionTexture: textures[4],
   occlusionStrength: 0.7,
+  detail: { normalTexture: textures[5], roughnessTexture: textures[6], scale: 12, strength: 0.35, roughnessStrength: 0.4 },
   alphaMode: 'blend',
   doubleSided: true,
   ownsTextures: true
@@ -108,6 +111,9 @@ webgl.render(scene, camera)
 assert.ok(glState.shaderSources.some(source => source.includes('u_metallicRoughnessMap')))
 assert.ok(glState.shaderSources.some(source => source.includes('u_normalMap')))
 assert.ok(glState.shaderSources.some(source => source.includes('u_forceOpaqueAlpha')))
+assert.ok(glState.shaderSources.some(source => source.includes('u_detailNormalMap')))
+assert.ok(glState.shaderSources.some(source => source.includes('u_detailRoughnessMap')))
+assert.ok(glState.shaderSources.some(source => source.includes('u_detailParams')))
 assert.ok(glState.textureUploads >= 6, `expected fallback plus five texture uploads, received ${glState.textureUploads}`)
 assert.ok(glState.mipmaps >= 1)
 assert.equal(glState.draws, 1)
@@ -157,6 +163,9 @@ webgpu.render(scene, camera)
 assert.ok(gpuState.shaderSources.some(source => source.includes('metallicRoughnessTexture')))
 assert.ok(gpuState.shaderSources.some(source => source.includes('normalTexture')))
 assert.ok(gpuState.shaderSources.some(source => source.includes('uniforms.materialParams2.w')))
+assert.ok(gpuState.shaderSources.some(source => source.includes('detailNormalTexture')))
+assert.ok(gpuState.shaderSources.some(source => source.includes('detailRoughnessTexture')))
+assert.ok(gpuState.shaderSources.some(source => source.includes('uniforms.detailParams')))
 const standardWgsl = gpuState.shaderSources.find(source => source.includes('fn surfaceNormal'))
 assert.ok(standardWgsl, 'expected the standard WGSL shader source')
 assert.equal(standardWgsl.trimEnd().endsWith('}\n}'), false, 'standard WGSL must not end with a stray top-level brace')
@@ -182,7 +191,7 @@ assert.ok(standardGlsl.includes('u_environmentDiffuseMap'), 'GLSL diffuse irradi
 assert.ok(standardGlsl.includes('u_environmentBrdfLut'), 'GLSL split-sum BRDF LUT support must be present')
 assert.ok(glState.shaderSources.some(source => source.includes('transpose(inverse(model3))')), 'GLSL normals must use inverse-transpose for non-uniform scale')
 assert.ok(gpuState.textureCopies >= 5)
-assert.ok(gpuState.bindEntries.some(count => count >= 27), 'standard WebGPU materials must bind diffuse/specular IBL resources')
+assert.ok(gpuState.bindEntries.some(count => count >= 31), 'standard WebGPU materials must bind IBL and material-detail resources')
 assert.ok(gpuState.samplers.some(descriptor => descriptor.mipmapFilter === 'nearest' && descriptor.maxAnisotropy === 1), 'nearest-mipmap glTF samplers must disable WebGPU anisotropy instead of creating an invalid sampler')
 for (const descriptor of gpuState.samplers) {
   if ((descriptor.maxAnisotropy ?? 1) <= 1) continue
@@ -190,12 +199,12 @@ for (const descriptor of gpuState.samplers) {
   assert.equal(descriptor.magFilter, 'linear', 'anisotropic WebGPU samplers require linear magFilter')
   assert.equal(descriptor.mipmapFilter, 'linear', 'anisotropic WebGPU samplers require linear mipmapFilter')
 }
-assert.equal(gpuState.draws, 2, 'one internal mipmap pass plus one scene draw is expected')
+assert.equal(gpuState.draws, 4, 'three mipmap passes plus one scene draw are expected')
 assert.equal(webgpu.stats.drawCalls, 1)
 webgpu.render(shaderScene, camera)
 assert.ok(gpuState.shaderSources.some(source => source.includes('Sekai64ShaderUniforms')))
 assert.ok(gpuState.bindEntries.some(count => count === 1), 'ShaderMaterial should use the compact one-buffer bind group')
-assert.equal(gpuState.draws, 3)
+assert.equal(gpuState.draws, 5)
 assert.equal(webgpu.stats.drawCalls, 1)
 assert.equal(webgpu.capabilities.features.mipmapGeneration, true)
 const gpuCreatedAfterFirstRender = gpuState.createdTextures

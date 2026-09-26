@@ -18,6 +18,23 @@ export interface TextureTransformOptions {
   rotation?: number
 }
 
+export interface MaterialDetailOptions {
+  /** Optional high-frequency tangent-space normal texture. */
+  normalTexture?: TextureInput
+  /** Optional high-frequency roughness texture sampled from red. */
+  roughnessTexture?: TextureInput
+  /** Optional generic height texture sampled from red for lightweight parallax. */
+  heightTexture?: TextureInput
+  /** Multiplier applied to the material UVs for detail sampling. */
+  scale?: number
+  /** Detail normal contribution. */
+  strength?: number
+  /** Blend amount from base roughness toward detail roughness. */
+  roughnessStrength?: number
+  /** Non-negative parallax displacement scale in normalized surface units. */
+  heightScale?: number
+}
+
 export interface TextureWrapOptions {
   /** Horizontal texture addressing mode. */
   s?: TextureWrap
@@ -112,6 +129,16 @@ export interface WaterShadingOptions {
   fresnelPower?: number
   reflectionStrength?: number
   absorptionStrength?: number
+  /** World-space frequency for lightweight surface motion. */
+  waveScale?: number
+  /** Surface-normal perturbation strength. Zero preserves legacy static water. */
+  waveStrength?: number
+  /** Time multiplier for the renderer-owned wave phase. */
+  waveSpeed?: number
+  /** X/Z flow direction; normalized by the material. */
+  flowDirection?: readonly [number, number]
+  /** Slope-driven foam contribution. */
+  foamStrength?: number
 }
 
 export interface StandardMaterialOptions extends MaterialOptions {
@@ -136,6 +163,8 @@ export interface StandardMaterialOptions extends MaterialOptions {
   occlusionTexture?: TextureInput
   occlusionTexCoord?: TextureCoordinateSet
   occlusionStrength?: number
+  /** Optional high-frequency PBR detail layered over the base channels. */
+  detail?: MaterialDetailOptions
   /** Shared transform for authored standard texture coordinates. */
   textureTransform?: TextureTransformOptions
   /** Shared sampler addressing for authored standard texture channels. */
@@ -177,6 +206,9 @@ export class StandardMaterial extends Material {
   metallicTexture?: Texture
   roughnessTexture?: Texture
   normalTexture?: Texture
+  detailNormalTexture?: Texture
+  detailRoughnessTexture?: Texture
+  detailHeightTexture?: Texture
   emissiveTexture?: Texture
   occlusionTexture?: Texture
   lightMapTexture?: Texture
@@ -201,6 +233,10 @@ export class StandardMaterial extends Material {
   metallic: number
   roughness: number
   normalScale: number
+  detailScale: number
+  detailNormalStrength: number
+  detailRoughnessStrength: number
+  detailHeightScale: number
   emissiveIntensity: number
   occlusionStrength: number
   textureOffset: readonly [number, number]
@@ -268,6 +304,11 @@ export class StandardMaterial extends Material {
   waterFresnelPower: number
   waterReflectionStrength: number
   waterAbsorptionStrength: number
+  waterWaveScale: number
+  waterWaveStrength: number
+  waterWaveSpeed: number
+  readonly waterFlowDirection: readonly [number, number]
+  waterFoamStrength: number
   alphaDither: boolean
   alphaMode: AlphaMode
   alphaCutoff: number
@@ -305,6 +346,9 @@ export class StandardMaterial extends Material {
     this.metallicTexture = this.createTexture(options.metallicTexture, 'metallic', options.ownsTextures)
     this.roughnessTexture = this.createTexture(options.roughnessTexture, 'roughness', options.ownsTextures)
     this.normalTexture = this.createTexture(options.normalTexture, 'normal', options.ownsTextures)
+    this.detailNormalTexture = this.createTexture(options.detail?.normalTexture, 'detail-normal', options.ownsTextures, true)
+    this.detailRoughnessTexture = this.createTexture(options.detail?.roughnessTexture, 'detail-roughness', options.ownsTextures, true)
+    this.detailHeightTexture = this.createTexture(options.detail?.heightTexture, 'detail-height', options.ownsTextures, true)
     this.emissiveTexture = this.createTexture(options.emissiveTexture, 'emissive', options.ownsTextures)
     this.occlusionTexture = this.createTexture(options.occlusionTexture, 'occlusion', options.ownsTextures)
     this.lightMapTexture = this.createTexture(options.lightMapTexture, 'light-map', options.ownsTextures)
@@ -330,6 +374,10 @@ export class StandardMaterial extends Material {
     this.metallic = clamp01(options.metallic ?? 0)
     this.roughness = clamp01(options.roughness ?? 1)
     this.normalScale = Number.isFinite(options.normalScale) ? Math.max(0, options.normalScale ?? 1) : 1
+    this.detailScale = Number.isFinite(options.detail?.scale) ? Math.max(0.0001, options.detail?.scale ?? 1) : 1
+    this.detailNormalStrength = Number.isFinite(options.detail?.strength) ? Math.max(0, options.detail?.strength ?? 1) : 1
+    this.detailRoughnessStrength = clamp01(options.detail?.roughnessStrength ?? 1)
+    this.detailHeightScale = Number.isFinite(options.detail?.heightScale) ? Math.min(0.25, Math.max(0, options.detail?.heightScale ?? 0.02)) : 0.02
     this.emissiveIntensity = Math.max(0, options.emissiveIntensity ?? 1)
     this.occlusionStrength = clamp01(options.occlusionStrength ?? 1)
     this.textureOffset = finiteVec2(options.textureTransform?.offset, [0, 0])
@@ -381,6 +429,11 @@ export class StandardMaterial extends Material {
     this.waterFresnelPower = clampRange(options.water?.fresnelPower ?? 5, 0.5, 16)
     this.waterReflectionStrength = clamp01(options.water?.reflectionStrength ?? 0.78)
     this.waterAbsorptionStrength = Math.max(0, options.water?.absorptionStrength ?? 1)
+    this.waterWaveScale = clampRange(options.water?.waveScale ?? 0.45, 0.0001, 64)
+    this.waterWaveStrength = clamp01(options.water?.waveStrength ?? 0)
+    this.waterWaveSpeed = clampRange(options.water?.waveSpeed ?? 0.35, 0, 8)
+    this.waterFlowDirection = normalizedDirectionVec2(options.water?.flowDirection, [1, 0.35])
+    this.waterFoamStrength = clamp01(options.water?.foamStrength ?? 0.18)
     this.alphaDither = options.alphaDither ?? false
     this.alphaMode = alphaMode
     this.alphaCutoff = clamp01(options.alphaCutoff ?? 0.5)
@@ -418,6 +471,21 @@ export class StandardMaterial extends Material {
     return this
   }
 
+  setDetailNormalTexture(value?: TextureInput, ownsTexture = !(value instanceof Texture), autoload = false): this {
+    this.replaceTexture('detailNormalTexture', value, 'detail-normal', ownsTexture, autoload, true)
+    return this
+  }
+
+  setDetailRoughnessTexture(value?: TextureInput, ownsTexture = !(value instanceof Texture), autoload = false): this {
+    this.replaceTexture('detailRoughnessTexture', value, 'detail-roughness', ownsTexture, autoload, true)
+    return this
+  }
+
+  setDetailHeightTexture(value?: TextureInput, ownsTexture = !(value instanceof Texture), autoload = false): this {
+    this.replaceTexture('detailHeightTexture', value, 'detail-height', ownsTexture, autoload, true)
+    return this
+  }
+
   loadTextures(options: TextureLoadOptions = {}): Promise<this> {
     this.assertAlive()
     return this.startTextureLoading(options)
@@ -429,19 +497,19 @@ export class StandardMaterial extends Material {
     super.release()
   }
 
-  private createTexture(value: TextureInput | undefined, label: string, ownsTextures: boolean | undefined): Texture | undefined {
+  private createTexture(value: TextureInput | undefined, label: string, ownsTextures: boolean | undefined, preferMipmaps = false): Texture | undefined {
     if (value === undefined) return undefined
-    const texture = value instanceof Texture ? value : new Texture({ source: value, label, wrapS: this.textureWrapS, wrapT: this.textureWrapT })
+    const texture = value instanceof Texture ? value : new Texture({ source: value, label, wrapS: this.textureWrapS, wrapT: this.textureWrapT, ...(preferMipmaps ? { generateMipmaps: true, minFilter: 'linear-mipmap-linear' as const } : {}) })
     const owns = ownsTextures ?? !(value instanceof Texture)
     if (owns) this.ownedTextures.add(texture)
     return texture
   }
 
-  private replaceTexture(key: 'baseColorTexture' | 'metallicRoughnessTexture' | 'metallicTexture' | 'roughnessTexture' | 'normalTexture' | 'emissiveTexture' | 'occlusionTexture' | 'lightMapTexture' | 'faceShadowTexture' | 'mtoonShadeTexture' | 'mtoonShadingShiftTexture' | 'mtoonMatcapTexture' | 'mtoonRimTexture', value: TextureInput | undefined, label: string, ownsTexture: boolean, autoload: boolean): void {
+  private replaceTexture(key: 'baseColorTexture' | 'metallicRoughnessTexture' | 'metallicTexture' | 'roughnessTexture' | 'normalTexture' | 'detailNormalTexture' | 'detailRoughnessTexture' | 'detailHeightTexture' | 'emissiveTexture' | 'occlusionTexture' | 'lightMapTexture' | 'faceShadowTexture' | 'mtoonShadeTexture' | 'mtoonShadingShiftTexture' | 'mtoonMatcapTexture' | 'mtoonRimTexture', value: TextureInput | undefined, label: string, ownsTexture: boolean, autoload: boolean, preferMipmaps = false): void {
     this.assertAlive()
     const previous = this[key]
     if (previous && this.ownedTextures.delete(previous)) previous.dispose()
-    const texture = value === undefined ? undefined : value instanceof Texture ? value : new Texture({ source: value, label, wrapS: this.textureWrapS, wrapT: this.textureWrapT })
+    const texture = value === undefined ? undefined : value instanceof Texture ? value : new Texture({ source: value, label, wrapS: this.textureWrapS, wrapT: this.textureWrapT, ...(preferMipmaps ? { generateMipmaps: true, minFilter: 'linear-mipmap-linear' as const } : {}) })
     this[key] = texture
     if (texture && ownsTexture) this.ownedTextures.add(texture)
     this.ownsTextures = this.ownedTextures.size > 0
@@ -456,6 +524,9 @@ export class StandardMaterial extends Material {
       this.metallicTexture,
       this.roughnessTexture,
       this.normalTexture,
+      this.detailNormalTexture,
+      this.detailRoughnessTexture,
+      this.detailHeightTexture,
       this.emissiveTexture,
       this.occlusionTexture,
       this.lightMapTexture,
@@ -487,6 +558,13 @@ function nonZeroVec2(value: readonly [number, number] | undefined, fallback: rea
   const resolved = finiteVec2(value, fallback)
   if (Math.abs(resolved[0]) < Number.EPSILON || Math.abs(resolved[1]) < Number.EPSILON) return fallback
   return resolved
+}
+
+function normalizedDirectionVec2(value: readonly [number, number] | undefined, fallback: readonly [number, number]): readonly [number, number] {
+  const resolved = finiteVec2(value, fallback)
+  const length = Math.hypot(resolved[0], resolved[1])
+  if (!Number.isFinite(length) || length < 1e-8) return normalizedDirectionVec2(fallback, [1, 0])
+  return [resolved[0] / length, resolved[1] / length]
 }
 
 function toTexCoord(value: TextureCoordinateSet | undefined): TextureCoordinateSet { return value === 1 ? 1 : 0 }
