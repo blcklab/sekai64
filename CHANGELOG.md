@@ -1,3 +1,11 @@
+# 0.8.0-rc.35 — generic material UV mapping controls
+
+- Added a lightweight `textureTransform` contract to `StandardMaterial` with shared UV scale, offset, and rotation.
+- Added `textureWrap` control (`clamp-to-edge`, `repeat`, `mirror-repeat`, including per-axis S/T selection) for source-backed StandardMaterial textures so authored UV transforms can tile correctly.
+- WebGL2 and WebGPU apply the same transform in shader space with identity defaults, and both preserve the existing clamp-to-edge default, so existing materials are unchanged.
+- The feature is generic and object-agnostic: procedural terrain, rocks, architecture, vegetation, props, clouds, and other authored surfaces can reuse it without renderer-specific object systems.
+- Invalid direct renderer values fall back safely instead of producing non-finite shader coordinates.
+
 # 0.8.0-rc.34
 
 - Preserve generated mipmaps for dynamic textures on WebGPU instead of downgrading to the base level.

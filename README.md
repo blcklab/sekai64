@@ -2,7 +2,7 @@
 
 A modular WebGPU/WebGL2 TypeScript renderer for interactive 3D applications, glTF/GLB content, VRM characters, large scenes, media surfaces, and optional WebXR.
 
-> `0.8.0-rc.33` is a release candidate and is published under the `next` npm dist-tag.
+> `0.8.0-rc.35` is a release candidate and is published under the `next` npm dist-tag.
 
 ## Installation
 
@@ -32,6 +32,7 @@ model.dispose()
 ## Capabilities
 
 - WebGPU rendering with WebGL2 fallback
+- Generic material UV scale/offset/rotation plus clamp/repeat/mirror-repeat wrapping with WebGL2/WebGPU parity
 - glTF/GLB loading, including binary VRM containers
 - PBR materials, MToon/VRM material support, textures, lights, cameras, and picking
 - Optional animation, environment, streaming, recovery, large-scene, dynamic-texture, and WebXR modules

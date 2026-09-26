@@ -54,6 +54,8 @@ interface Uniforms {
   roughness: WebGLUniformLocation | null
   normalScale: WebGLUniformLocation | null
   occlusionStrength: WebGLUniformLocation | null
+  textureTransform: WebGLUniformLocation | null
+  textureRotation: WebGLUniformLocation | null
   forceOpaqueAlpha: WebGLUniformLocation | null
   baseColorMap: WebGLUniformLocation | null
   metallicRoughnessMap: WebGLUniformLocation | null
@@ -148,6 +150,9 @@ interface MaterialSurface {
   roughness: number
   normalScale: number
   occlusionStrength: number
+  textureScale: readonly [number, number]
+  textureOffset: readonly [number, number]
+  textureRotation: number
   forceOpaqueAlpha: boolean
   baseColor: TextureBinding
   metallicRoughness: TextureBinding
@@ -331,8 +336,14 @@ uniform sampler2D u_faceShadowMap;uniform bool u_useFaceShadowMap;uniform int u_
 uniform sampler2D u_environmentMap;uniform sampler2D u_environmentDiffuseMap;uniform sampler2D u_environmentBrdfLut;uniform vec4 u_environmentMapParams;uniform vec4 u_environmentIblParams;
 uniform sampler2D u_lightMap;uniform bool u_useLightMap;uniform int u_lightMapTexCoord;uniform vec4 u_pbrAdvanced;uniform vec3 u_specularColor;uniform vec4 u_sheenColor;
 uniform vec4 u_waterParams;uniform vec3 u_waterShallowColor;uniform vec3 u_waterDeepColor;uniform vec3 u_waterFoamColor;uniform vec4 u_toonParams3;uniform vec4 u_mtoonAdvanced2;
+uniform vec4 u_textureTransform;uniform float u_textureRotation;
 out vec4 outColor;
-vec2 uvSet(int index){return index==1?v_uv1:v_uv;}
+vec2 uvSet(int index){
+  vec2 uv=index==1?v_uv1:v_uv;
+  vec2 scaled=uv*u_textureTransform.xy;
+  float c=cos(u_textureRotation);float sn=sin(u_textureRotation);
+  return vec2(c*scaled.x-sn*scaled.y,sn*scaled.x+c*scaled.y)+u_textureTransform.zw;
+}
 vec3 srgbToLinear(vec3 value){
   bvec3 cutoff=lessThanEqual(value,vec3(0.04045));
   vec3 low=value/12.92;
@@ -1322,6 +1333,8 @@ export class WebGL2Renderer implements RecoverableRenderer {
     gl.uniform1f(uniforms.roughness, surface.roughness)
     gl.uniform1f(uniforms.normalScale, surface.normalScale)
     gl.uniform1f(uniforms.occlusionStrength, surface.occlusionStrength)
+    gl.uniform4f(uniforms.textureTransform, surface.textureScale[0], surface.textureScale[1], surface.textureOffset[0], surface.textureOffset[1])
+    gl.uniform1f(uniforms.textureRotation, surface.textureRotation)
     gl.uniform1i(uniforms.forceOpaqueAlpha, surface.forceOpaqueAlpha ? 1 : 0)
     gl.uniform4f(uniforms.glassParams, surface.transmission, surface.ior, surface.thickness, surface.attenuationDistance)
     gl.uniform3f(uniforms.attenuationColor, surface.attenuationColor.r, surface.attenuationColor.g, surface.attenuationColor.b)
@@ -1764,6 +1777,8 @@ function createProgramState(gl: WebGL2RenderingContext, vertex: string, fragment
     roughness: uniform('u_roughness'),
     normalScale: uniform('u_normalScale'),
     occlusionStrength: uniform('u_occlusionStrength'),
+    textureTransform: uniform('u_textureTransform'),
+    textureRotation: uniform('u_textureRotation'),
     forceOpaqueAlpha: uniform('u_forceOpaqueAlpha'),
     baseColorMap: uniform('u_baseColorMap'),
     metallicRoughnessMap: uniform('u_metallicRoughnessMap'),
@@ -1854,7 +1869,7 @@ function packShaderUniforms(values: Iterable<UniformValue>, target: Float32Array
   }
 }
 function emptyBinding(texture?: Texture, texCoord: 0 | 1 = 0): TextureBinding { return { texture, texCoord } }
-function defaultToonSurface(){return { toonParams:[3,0.58,0.2,0.18] as const,toonParams2:[2.5,0.68,5,0] as const,toonParams3:[0.08,0,0.18,0] as const,mtoonAdvanced2:[0.12,0.08,0,0] as const,toonShadowColor:Color.from('#66708f'),toonHighlightColor:Color.from('#fff4df'),toonRimColor:Color.from('#ffd7e8'),toonOutlineColor:Color.from('#201a2a'),faceShadow:emptyBinding(),faceShadowStrength:0,faceShadowFlipX:false,hairAlphaDither:false,outlineWidth:0,lightMap:emptyBinding(),lightMapIntensity:1,specularFactor:1,specularColor:Color.from('#ffffff'),clearcoat:0,clearcoatRoughness:0.1,sheenColor:Color.from('#ffffff'),sheenIntensity:0,sheenRoughness:0.5,alphaDither:false,waterParams:[5,0.78,1,1] as const,waterShallowColor:Color.from('#55b8d6'),waterDeepColor:Color.from('#0a3f67'),waterFoamColor:Color.from('#e8fbff') }}
+function defaultToonSurface(){return { textureScale:[1,1] as const,textureOffset:[0,0] as const,textureRotation:0,toonParams:[3,0.58,0.2,0.18] as const,toonParams2:[2.5,0.68,5,0] as const,toonParams3:[0.08,0,0.18,0] as const,mtoonAdvanced2:[0.12,0.08,0,0] as const,toonShadowColor:Color.from('#66708f'),toonHighlightColor:Color.from('#fff4df'),toonRimColor:Color.from('#ffd7e8'),toonOutlineColor:Color.from('#201a2a'),faceShadow:emptyBinding(),faceShadowStrength:0,faceShadowFlipX:false,hairAlphaDither:false,outlineWidth:0,lightMap:emptyBinding(),lightMapIntensity:1,specularFactor:1,specularColor:Color.from('#ffffff'),clearcoat:0,clearcoatRoughness:0.1,sheenColor:Color.from('#ffffff'),sheenIntensity:0,sheenRoughness:0.5,alphaDither:false,waterParams:[5,0.78,1,1] as const,waterShallowColor:Color.from('#55b8d6'),waterDeepColor:Color.from('#0a3f67'),waterFoamColor:Color.from('#e8fbff') }}
 function materialSurface(material: Material): MaterialSurface | null {
   if (material instanceof StandardMaterial) return {
     color: material.baseColor,
@@ -1865,6 +1880,9 @@ function materialSurface(material: Material): MaterialSurface | null {
     roughness: material.roughness,
     normalScale: material.normalScale,
     occlusionStrength: material.occlusionStrength,
+    textureScale: material.textureScale,
+    textureOffset: material.textureOffset,
+    textureRotation: material.textureRotation,
     forceOpaqueAlpha: material.alphaMode !== 'blend',
     baseColor: emptyBinding(material.baseColorTexture, material.baseColorTexCoord),
     metallicRoughness: emptyBinding(material.metallicRoughnessTexture, material.metallicRoughnessTexCoord),
