@@ -1,6 +1,6 @@
 import { Color, type ColorInput } from '@sekai64-internal/math'
 import { Material, type MaterialOptions } from './Material.js'
-import { Texture, type TextureLoadOptions, type TextureSource } from './Texture.js'
+import { Texture, type TextureLoadOptions, type TextureSource, type TextureWrap } from './Texture.js'
 
 export type AlphaMode = 'opaque' | 'mask' | 'blend'
 export type TextureInput = Texture | TextureSource
@@ -8,6 +8,23 @@ export type TextureCoordinateSet = 0 | 1
 export type ShadingModel = 'pbr' | 'toon' | 'mtoon' | 'water'
 export type CharacterMaterialRole = 'generic' | 'skin' | 'hair' | 'eye'
 export type MToonOutlineWidthMode = 'none' | 'worldCoordinates' | 'screenCoordinates'
+
+export interface TextureTransformOptions {
+  /** UV translation applied after scale and rotation. */
+  offset?: readonly [number, number]
+  /** UV scale applied before rotation. Values above 1 repeat when the sampler wraps. */
+  scale?: readonly [number, number]
+  /** Counter-clockwise rotation in radians around UV origin. */
+  rotation?: number
+}
+
+export interface TextureWrapOptions {
+  /** Horizontal texture addressing mode. */
+  s?: TextureWrap
+  /** Vertical texture addressing mode. */
+  t?: TextureWrap
+}
+export type TextureWrapInput = TextureWrap | TextureWrapOptions
 
 export interface ToonShadingOptions {
   shadeSteps?: number
@@ -119,6 +136,10 @@ export interface StandardMaterialOptions extends MaterialOptions {
   occlusionTexture?: TextureInput
   occlusionTexCoord?: TextureCoordinateSet
   occlusionStrength?: number
+  /** Shared transform for authored standard texture coordinates. */
+  textureTransform?: TextureTransformOptions
+  /** Shared sampler addressing for authored standard texture channels. */
+  textureWrap?: TextureWrapInput
   lightMapTexture?: TextureInput
   lightMapTexCoord?: TextureCoordinateSet
   lightMapIntensity?: number
@@ -182,6 +203,11 @@ export class StandardMaterial extends Material {
   normalScale: number
   emissiveIntensity: number
   occlusionStrength: number
+  textureOffset: readonly [number, number]
+  textureScale: readonly [number, number]
+  textureRotation: number
+  textureWrapS: TextureWrap
+  textureWrapT: TextureWrap
   lightMapIntensity: number
   specularFactor: number
   clearcoat: number
@@ -271,6 +297,9 @@ export class StandardMaterial extends Material {
     this.mtoonRimColor = Color.from(options.mtoon?.parametricRimColor ?? '#000000')
     this.mtoonOutlineColor = Color.from(options.mtoon?.outlineColor ?? '#000000')
     this.mtoonMatcapColor = Color.from(options.mtoon?.matcapColor ?? '#ffffff')
+    const textureWrap = resolveTextureWrap(options.textureWrap)
+    this.textureWrapS = textureWrap.s
+    this.textureWrapT = textureWrap.t
     this.baseColorTexture = this.createTexture(options.baseColorTexture, 'base-color', options.ownsTextures)
     this.metallicRoughnessTexture = this.createTexture(options.metallicRoughnessTexture, 'metallic-roughness', options.ownsTextures)
     this.metallicTexture = this.createTexture(options.metallicTexture, 'metallic', options.ownsTextures)
@@ -303,6 +332,9 @@ export class StandardMaterial extends Material {
     this.normalScale = Number.isFinite(options.normalScale) ? Math.max(0, options.normalScale ?? 1) : 1
     this.emissiveIntensity = Math.max(0, options.emissiveIntensity ?? 1)
     this.occlusionStrength = clamp01(options.occlusionStrength ?? 1)
+    this.textureOffset = finiteVec2(options.textureTransform?.offset, [0, 0])
+    this.textureScale = nonZeroVec2(options.textureTransform?.scale, [1, 1])
+    this.textureRotation = Number.isFinite(options.textureTransform?.rotation) ? options.textureTransform?.rotation ?? 0 : 0
     this.lightMapIntensity = Math.max(0, options.lightMapIntensity ?? 1)
     this.specularFactor = clamp01(options.specularFactor ?? 1)
     this.clearcoat = clamp01(options.clearcoat ?? 0)
@@ -368,6 +400,13 @@ export class StandardMaterial extends Material {
   setMetallic(value: number): this { this.metallic = clamp01(value); this.markChanged(); return this }
   setRoughness(value: number): this { this.roughness = clamp01(value); this.markChanged(); return this }
   setEmissive(value: ColorInput, intensity = this.emissiveIntensity): this { this.emissive.set(value); this.emissiveIntensity = Math.max(0, intensity); this.markChanged(); return this }
+  setTextureTransform(value: TextureTransformOptions = {}): this {
+    this.textureOffset = finiteVec2(value.offset, [0, 0])
+    this.textureScale = nonZeroVec2(value.scale, [1, 1])
+    this.textureRotation = Number.isFinite(value.rotation) ? value.rotation ?? 0 : 0
+    this.markChanged()
+    return this
+  }
 
   setBaseColorTexture(value?: TextureInput, ownsTexture = !(value instanceof Texture), autoload = false): this {
     this.replaceTexture('baseColorTexture', value, 'base-color', ownsTexture, autoload)
@@ -392,7 +431,7 @@ export class StandardMaterial extends Material {
 
   private createTexture(value: TextureInput | undefined, label: string, ownsTextures: boolean | undefined): Texture | undefined {
     if (value === undefined) return undefined
-    const texture = value instanceof Texture ? value : new Texture({ source: value, label })
+    const texture = value instanceof Texture ? value : new Texture({ source: value, label, wrapS: this.textureWrapS, wrapT: this.textureWrapT })
     const owns = ownsTextures ?? !(value instanceof Texture)
     if (owns) this.ownedTextures.add(texture)
     return texture
@@ -402,7 +441,7 @@ export class StandardMaterial extends Material {
     this.assertAlive()
     const previous = this[key]
     if (previous && this.ownedTextures.delete(previous)) previous.dispose()
-    const texture = value === undefined ? undefined : value instanceof Texture ? value : new Texture({ source: value, label })
+    const texture = value === undefined ? undefined : value instanceof Texture ? value : new Texture({ source: value, label, wrapS: this.textureWrapS, wrapT: this.textureWrapT })
     this[key] = texture
     if (texture && ownsTexture) this.ownedTextures.add(texture)
     this.ownsTextures = this.ownedTextures.size > 0
@@ -431,6 +470,23 @@ export class StandardMaterial extends Material {
     void this.readiness.catch(() => undefined)
     return this.readiness
   }
+}
+
+
+function resolveTextureWrap(value: TextureWrapInput | undefined): { s: TextureWrap; t: TextureWrap } {
+  if (typeof value === 'string') return { s: value, t: value }
+  return { s: value?.s ?? 'clamp-to-edge', t: value?.t ?? 'clamp-to-edge' }
+}
+
+function finiteVec2(value: readonly [number, number] | undefined, fallback: readonly [number, number]): readonly [number, number] {
+  if (!value || !Number.isFinite(value[0]) || !Number.isFinite(value[1])) return fallback
+  return [value[0], value[1]]
+}
+
+function nonZeroVec2(value: readonly [number, number] | undefined, fallback: readonly [number, number]): readonly [number, number] {
+  const resolved = finiteVec2(value, fallback)
+  if (Math.abs(resolved[0]) < Number.EPSILON || Math.abs(resolved[1]) < Number.EPSILON) return fallback
+  return resolved
 }
 
 function toTexCoord(value: TextureCoordinateSet | undefined): TextureCoordinateSet { return value === 1 ? 1 : 0 }

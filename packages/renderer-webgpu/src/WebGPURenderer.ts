@@ -58,6 +58,9 @@ interface MaterialSurface {
   roughnessFactor: number
   normalScale: number
   occlusionStrength: number
+  textureScale: readonly [number, number]
+  textureOffset: readonly [number, number]
+  textureRotation: number
   forceOpaqueAlpha: boolean
   baseColor: TextureBinding
   metallicRoughness: TextureBinding
@@ -162,6 +165,8 @@ struct Uniforms {
   lightMapParams: vec4<f32>,
   shadowQuality: vec4<f32>,
   environmentIblParams: vec4<f32>,
+  textureTransform: vec4<f32>,
+  textureRotation: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var baseColorSampler: sampler;
@@ -217,7 +222,7 @@ struct VertexOutput {
   output.color=color;
   return output;
 }
-fn uvSet(input:VertexOutput,index:f32)->vec2<f32>{return select(input.uv,input.uv1,index>0.5);}
+fn uvSet(input:VertexOutput,index:f32)->vec2<f32>{let uv=select(input.uv,input.uv1,index>0.5);let scaled=uv*uniforms.textureTransform.xy;let c=cos(uniforms.textureRotation.x);let sn=sin(uniforms.textureRotation.x);return vec2<f32>(c*scaled.x-sn*scaled.y,sn*scaled.x+c*scaled.y)+uniforms.textureTransform.zw;}
 fn srgbChannelToLinear(value:f32)->f32{return select(value/12.92,pow((value+0.055)/1.055,2.4),value>0.04045);}
 fn srgbToLinear(value:vec3<f32>)->vec3<f32>{return vec3<f32>(srgbChannelToLinear(value.r),srgbChannelToLinear(value.g),srgbChannelToLinear(value.b));}
 fn linearChannelToSrgb(value:f32)->f32{let x=clamp(value,0.0,1.0);return select(x*12.92,1.055*pow(x,1.0/2.4)-0.055,x>0.0031308);}
@@ -758,6 +763,8 @@ export class WebGPURenderer implements RecoverableRenderer {
       uniform.values.set([shadowFilter,this.shadowOptions.cascadeBlend,this.shadowOptions.distanceFade,0],408)
       const environmentMaxLod=this.environmentMap?.mipLevels?.length??(this.environmentTexture?Math.max(0,this.environmentTexture.mipLevelCount-1):0)
       uniform.values.set([this.environmentDiffuseTexture?1:0,this.environmentBrdfTexture?1:0,environmentMaxLod,0],412)
+      uniform.values.set([surface.textureScale[0],surface.textureScale[1],surface.textureOffset[0],surface.textureOffset[1]],416)
+      uniform.values.set([surface.textureRotation,0,0,0],420)
       device.queue.writeBuffer(uniform.buffer, 0, uniform.values)
       this.stats.uniformUpdates += 1
       if(material instanceof StandardMaterial&&!material.transparent&&material.shadingModel==='mtoon'&&material.mtoonOutlineWidth>0&&this.postProcessing.outlines.enabled&&(this.postProcessing.outlines.mode==='inverted-hull'||this.postProcessing.outlines.mode==='hybrid')){const outlinePipeline=this.getOutlinePipeline(mesh instanceof InstancedMesh);if(outlinePipeline!==activePipeline){pass.setPipeline(outlinePipeline);activePipeline=outlinePipeline;this.stats.pipelineChanges+=1}pass.setBindGroup(0,uniform.bindGroup);this.bindGeometry(pass,geometry);const outlineInstances=mesh instanceof InstancedMesh?mesh.count:1;if(mesh instanceof InstancedMesh)pass.setVertexBuffer(6,this.getInstances(mesh).buffer);if(geometry.indexed&&geometry.indexBuffer){pass.setIndexBuffer(geometry.indexBuffer,geometry.indexFormat);pass.drawIndexed(item.count,outlineInstances,item.start)}else pass.draw(item.count,outlineInstances,item.start);this.stats.drawCalls+=1;this.stats.triangles+=(item.count/3)*outlineInstances}
@@ -1039,7 +1046,7 @@ export class WebGPURenderer implements RecoverableRenderer {
     const device = this.device as GPUDevice
     const layout = this.bindGroupLayout as GPUBindGroupLayout
     if (cached) cached.buffer.destroy()
-    const buffer = device.createBuffer({ label: `Sekai64 uniforms: ${mesh.id}`, size: 1680, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+    const buffer = device.createBuffer({ label: `Sekai64 uniforms: ${mesh.id}`, size: 1696, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
     const entries: object[] = [{ binding: 0, resource: { buffer } }]
     textureStates.slice(0,7).forEach((state, index) => {
       entries.push({ binding: 1 + index * 2, resource: state.sampler })
@@ -1049,7 +1056,7 @@ export class WebGPURenderer implements RecoverableRenderer {
     entries.push({binding:16,resource:this.shadowTextureView as GPUTextureView})
     entries.push({binding:17,resource:(textureStates[7] as WebGPUTextureState).sampler},{binding:18,resource:(textureStates[7] as WebGPUTextureState).view},{binding:19,resource:(textureStates[8] as WebGPUTextureState).sampler},{binding:20,resource:(textureStates[8] as WebGPUTextureState).view},{binding:21,resource:(textureStates[9] as WebGPUTextureState).sampler},{binding:22,resource:(textureStates[9] as WebGPUTextureState).view},{binding:23,resource:(textureStates[10] as WebGPUTextureState).sampler},{binding:24,resource:(textureStates[10] as WebGPUTextureState).view},{binding:25,resource:(textureStates[11] as WebGPUTextureState).sampler},{binding:26,resource:(textureStates[11] as WebGPUTextureState).view})
     const bindGroup = device.createBindGroup({ label: `Sekai64 bind group: ${mesh.id}`, layout, entries })
-    const uniform = { buffer, bindGroup, values: new Float32Array(420), textureStates: [...textureStates], shadowGeneration: this.shadowGeneration }
+    const uniform = { buffer, bindGroup, values: new Float32Array(424), textureStates: [...textureStates], shadowGeneration: this.shadowGeneration }
     byMaterial.set(material, uniform)
     this.stats.bindGroupChanges += 1
     this.stats.gpuResourceCreations += 2
@@ -1392,6 +1399,9 @@ function materialSurface(material: Material): MaterialSurface | null {
     roughnessFactor: material.roughness,
     normalScale: material.normalScale,
     occlusionStrength: material.occlusionStrength,
+    textureScale: material.textureScale,
+    textureOffset: material.textureOffset,
+    textureRotation: material.textureRotation,
     forceOpaqueAlpha: material.alphaMode !== 'blend',
     baseColor: emptyBinding(material.baseColorTexture, material.baseColorTexCoord),
     metallicRoughness: emptyBinding(material.metallicRoughnessTexture, material.metallicRoughnessTexCoord),
@@ -1444,7 +1454,7 @@ function materialSurface(material: Material): MaterialSurface | null {
     waterFoamColor: [material.waterFoamColor.r,material.waterFoamColor.g,material.waterFoamColor.b],
   }
   }
-  const base = { toonParams: [3,0.58,0.2,0.18] as const, toonParams2: [2.5,0.68,5,0] as const, toonParams3:[0.08,0,0.18,0] as const,mtoonAdvanced2:[0.12,0.08,0,0] as const, toonShadowColor: [0.4,0.44,0.56] as const, toonHighlightColor: [1,0.96,0.87] as const, toonRimColor: [1,0.84,0.91] as const, toonOutlineColor: [0.125,0.102,0.165] as const, emissive: [0, 0, 0] as const, metallicFactor: 0, roughnessFactor: 1, normalScale: 1, occlusionStrength: 1, metallicRoughness: emptyBinding(), metallic: emptyBinding(), roughness: emptyBinding(), normal: emptyBinding(), emissiveTexture: emptyBinding(), occlusion: emptyBinding(), transmission: 0, ior: 1.5, thickness: 0, attenuationColor: [1, 1, 1] as const, attenuationDistance: 1, faceShadow: emptyBinding(), faceShadowStrength: 0, faceShadowFlipX: false, hairAlphaDither: false, outlineWidth: 0,lightMap:emptyBinding(),lightMapIntensity:1,specularFactor:1,specularColor:[1,1,1] as const,clearcoat:0,clearcoatRoughness:0.1,sheenColor:[1,1,1] as const,sheenIntensity:0,sheenRoughness:0.5,alphaDither:false,waterParams:[5,0.78,1,1] as const,waterShallowColor:[0.333,0.722,0.839] as const,waterDeepColor:[0.039,0.247,0.404] as const,waterFoamColor:[0.91,0.984,1] as const }
+  const base = { textureScale:[1,1] as const,textureOffset:[0,0] as const,textureRotation:0,toonParams: [3,0.58,0.2,0.18] as const, toonParams2: [2.5,0.68,5,0] as const, toonParams3:[0.08,0,0.18,0] as const,mtoonAdvanced2:[0.12,0.08,0,0] as const, toonShadowColor: [0.4,0.44,0.56] as const, toonHighlightColor: [1,0.96,0.87] as const, toonRimColor: [1,0.84,0.91] as const, toonOutlineColor: [0.125,0.102,0.165] as const, emissive: [0, 0, 0] as const, metallicFactor: 0, roughnessFactor: 1, normalScale: 1, occlusionStrength: 1, metallicRoughness: emptyBinding(), metallic: emptyBinding(), roughness: emptyBinding(), normal: emptyBinding(), emissiveTexture: emptyBinding(), occlusion: emptyBinding(), transmission: 0, ior: 1.5, thickness: 0, attenuationColor: [1, 1, 1] as const, attenuationDistance: 1, faceShadow: emptyBinding(), faceShadowStrength: 0, faceShadowFlipX: false, hairAlphaDither: false, outlineWidth: 0,lightMap:emptyBinding(),lightMapIntensity:1,specularFactor:1,specularColor:[1,1,1] as const,clearcoat:0,clearcoatRoughness:0.1,sheenColor:[1,1,1] as const,sheenIntensity:0,sheenRoughness:0.5,alphaDither:false,waterParams:[5,0.78,1,1] as const,waterShallowColor:[0.333,0.722,0.839] as const,waterDeepColor:[0.039,0.247,0.404] as const,waterFoamColor:[0.91,0.984,1] as const }
   if (material instanceof TextureMaterial) return { ...base, color: material.tint, mode: 0, alphaCutoff: material.alphaCutoff, forceOpaqueAlpha: !material.transparent, baseColor: emptyBinding(material.map) }
   if (material instanceof BasicMaterial) return { ...base, color: material.baseColor, mode: 0, alphaCutoff: 0, forceOpaqueAlpha: !material.transparent, baseColor: emptyBinding() }
   if (material instanceof NormalMaterial) return { ...base, color: new Color(), mode: 2, alphaCutoff: 0, forceOpaqueAlpha: !material.transparent, baseColor: emptyBinding() }
