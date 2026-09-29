@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/math",
-  "version": "0.8.0-rc.43",
+  "version": "0.8.0-rc.44",
   "description": "Private Sekai64 workspace module: math. Bundled into @blcklab/sekai64.",
   "type": "module",
   "sideEffects": false,

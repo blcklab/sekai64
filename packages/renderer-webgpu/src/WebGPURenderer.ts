@@ -620,7 +620,13 @@ export class WebGPURenderer implements RecoverableRenderer {
       { binding: 23, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
       { binding: 24, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
       { binding: 25, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-      { binding: 26, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } }
+      { binding: 26, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
+      { binding: 27, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+      { binding: 28, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
+      { binding: 29, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+      { binding: 30, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
+      { binding: 31, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+      { binding: 32, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } }
     ] })
     this.pipelineLayout = device.createPipelineLayout({ label: 'Sekai64 pipeline layout', bindGroupLayouts: [this.bindGroupLayout] })
     this.shaderBindGroupLayout = device.createBindGroupLayout({ label: 'Sekai64 ShaderMaterial resources', entries: [

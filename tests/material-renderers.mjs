@@ -334,7 +334,14 @@ function createFakeWebGPU(state) {
     },
     createShaderModule(descriptor) { state.shaderSources.push(descriptor.code); return { descriptor } },
     createRenderPipeline: descriptor => ({ descriptor }),
-    createBindGroup(descriptor) { state.bindEntries.push(descriptor.entries.length); return { descriptor } },
+    createBindGroup(descriptor) {
+      const declaredBindings = new Set((descriptor.layout?.descriptor?.entries ?? []).map(entry => entry.binding))
+      for (const entry of descriptor.entries) {
+        assert.ok(declaredBindings.has(entry.binding), `WebGPU bind group entry ${entry.binding} is missing from its bind group layout`)
+      }
+      state.bindEntries.push(descriptor.entries.length)
+      return { descriptor }
+    },
     createCommandEncoder: () => ({ beginRenderPass: () => pass, finish: () => ({}) }),
     destroy() {}
   }

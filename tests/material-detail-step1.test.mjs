@@ -52,3 +52,13 @@ test('Step 1 shader sources keep WebGL2 and WebGPU detail semantics in parity', 
   assert.match(webgl, /roughness=mix\(roughness,detailRoughness/)
   assert.match(webgpu, /roughness=mix\(roughness,detailRoughness/)
 })
+
+
+test('WebGPU object-resource layout declares every material-detail binding used by WGSL and bind groups', async () => {
+  const webgpu = await readFile(new URL('../packages/renderer-webgpu/src/WebGPURenderer.ts', import.meta.url), 'utf8')
+  for (const binding of [27, 28, 29, 30, 31, 32]) {
+    assert.match(webgpu, new RegExp(`@group\\(0\\) @binding\\(${binding}\\)`), `WGSL must declare binding ${binding}`)
+    assert.match(webgpu, new RegExp(`\\{ binding: ${binding}, visibility: GPUShaderStage\\.FRAGMENT`), `WebGPU bind group layout must declare binding ${binding}`)
+    assert.match(webgpu, new RegExp(`binding:${binding},resource:`), `WebGPU bind group entries must populate binding ${binding}`)
+  }
+})

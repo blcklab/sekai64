@@ -1,3 +1,10 @@
+# 0.8.0-rc.44 — WebGPU material-detail bind-group layout fix
+
+- Fixed the WebGPU `Sekai64 object resources` bind-group layout so bindings 27–32 are declared for detail normal, detail roughness, and detail height samplers/textures already used by the WGSL shader and bind-group creation path.
+- Added regression coverage that validates every bind-group entry against the declared mock WebGPU layout, preventing undeclared binding slots from passing headless tests.
+- Added focused source-contract coverage for bindings 27–32.
+- WebGL2 behavior and public material authoring remain unchanged.
+
 # 0.8.0-rc.43 — procedural cloud quality
 
 - Improved the existing procedural HDR sky cloud layer in place; no `CloudRenderer`, `CloudSystem`, cloud scene nodes, volume pass, or new package was introduced.

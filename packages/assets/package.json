@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/assets",
-  "version": "0.8.0-rc.43",
+  "version": "0.8.0-rc.44",
   "description": "Private Sekai64 workspace module: assets. Bundled into @blcklab/sekai64.",
   "type": "module",
   "sideEffects": false,
@@ -24,7 +24,7 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@sekai64-internal/core": "0.8.0-rc.43"
+    "@sekai64-internal/core": "0.8.0-rc.44"
   },
   "license": "MIT",
   "author": "blcklab",
