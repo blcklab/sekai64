@@ -926,7 +926,7 @@ export class WebGPURenderer implements RecoverableRenderer {
     if (!this.environmentBackgroundPipeline || this.environmentBackgroundPipelineSampleCount !== this.sampleCount) {
       const module = device.createShaderModule({ label: 'Sekai64 environment background shader', code: environmentBackgroundShader })
       const layout = device.createPipelineLayout({ label: 'Sekai64 environment background layout', bindGroupLayouts: [this.environmentBackgroundBindGroupLayout] })
-      this.environmentBackgroundPipeline = device.createRenderPipeline({ label: 'Sekai64 environment background pipeline', layout, vertex: { module, entryPoint: 'background_vertex' }, fragment: { module, entryPoint: 'background_fragment', targets: [{ format: this.format }] }, primitive: { topology: 'triangle-list' }, multisample: { count: this.sampleCount } })
+      this.environmentBackgroundPipeline = device.createRenderPipeline({ label: 'Sekai64 environment background pipeline', layout, vertex: { module, entryPoint: 'background_vertex' }, fragment: { module, entryPoint: 'background_fragment', targets: [{ format: this.format }] }, primitive: { topology: 'triangle-list' }, depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' }, multisample: { count: this.sampleCount } })
       this.environmentBackgroundPipelineSampleCount = this.sampleCount
       this.stats.shaderCompilations += 1; this.stats.gpuResourceCreations += 3; this.stats.gpuResourceCreationsThisFrame += 3
     }

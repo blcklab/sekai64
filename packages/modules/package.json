@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/modules",
-  "version": "0.8.0-rc.44",
+  "version": "0.8.0-rc.45",
   "description": "Private Sekai64 optional renderer-module lifecycle and capability registry.",
   "type": "module",
   "sideEffects": false,
@@ -24,9 +24,9 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@sekai64-internal/cameras": "0.8.0-rc.44",
-    "@sekai64-internal/renderer": "0.8.0-rc.44",
-    "@sekai64-internal/scene": "0.8.0-rc.44"
+    "@sekai64-internal/cameras": "0.8.0-rc.45",
+    "@sekai64-internal/renderer": "0.8.0-rc.45",
+    "@sekai64-internal/scene": "0.8.0-rc.45"
   },
   "license": "MIT",
   "author": "blcklab",

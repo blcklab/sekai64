@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/dynamic-texture",
-  "version": "0.8.0-rc.44",
+  "version": "0.8.0-rc.45",
   "description": "Private Sekai64 workspace module: renderer-neutral dynamic texture capability.",
   "type": "module",
   "sideEffects": false,
@@ -24,8 +24,8 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@sekai64-internal/materials": "0.8.0-rc.44",
-    "@sekai64-internal/renderer": "0.8.0-rc.44"
+    "@sekai64-internal/materials": "0.8.0-rc.45",
+    "@sekai64-internal/renderer": "0.8.0-rc.45"
   },
   "license": "MIT",
   "author": "blcklab",

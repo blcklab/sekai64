@@ -1,3 +1,10 @@
+# 0.8.0-rc.45 — WebGPU environment background depth-attachment hotfix
+
+- Fixed the WebGPU environment background pipeline so its attachment state matches the main render pass when `depth24plus` and MSAA are enabled.
+- The background pipeline now declares `depthWriteEnabled: false` and `depthCompare: less-equal`, preserving far-background behavior without modifying scene depth.
+- Added focused regression coverage for the main-pass depth/MSAA compatibility contract.
+- WebGL2 behavior, public rendering APIs, Anyo world semantics, and material authoring remain unchanged.
+
 # 0.8.0-rc.44 — WebGPU material-detail bind-group layout fix
 
 - Fixed the WebGPU `Sekai64 object resources` bind-group layout so bindings 27–32 are declared for detail normal, detail roughness, and detail height samplers/textures already used by the WGSL shader and bind-group creation path.
@@ -81,6 +88,15 @@
 - Keep existing sRGB texture formats and renderer-wide anisotropy policy unchanged.
 
 # Changelog
+
+## 0.8.0-rc.45
+
+### WebGPU environment background depth-attachment hotfix
+
+- Fixed the WebGPU environment background pipeline so its attachment state matches the main render pass when `depth24plus` and MSAA are enabled.
+- The environment background now declares `depthWriteEnabled: false` with `depthCompare: "less-equal"`; this preserves far-background behavior without modifying scene depth.
+- Added regression coverage that requires the WebGPU environment background pipeline to declare the same depth format used by the main pass.
+- No WebGL2 behavior, public rendering API, world semantics, or material authoring contracts changed.
 
 ## 0.8.0-rc.34-dev.4 — material draw groups
 
