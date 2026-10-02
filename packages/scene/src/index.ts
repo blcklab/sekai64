@@ -7,3 +7,5 @@ export * from './MediaMesh.js'
 export * from './StaticBatching.js'
 
 export * from './ParticleEmitter.js'
+
+export * from './PointField.js'

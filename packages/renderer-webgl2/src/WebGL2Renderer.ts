@@ -4,7 +4,7 @@ import { collectSceneLights, type SceneLightSummary } from '@sekai64-internal/li
 import { BasicMaterial, DepthMaterial, NormalMaterial, ShaderMaterial, StandardMaterial, Texture, TextureMaterial, type Material, type UniformValue } from '@sekai64-internal/materials'
 import { Box3, Color, Frustum, Matrix4, Vector3, type ColorInput } from '@sekai64-internal/math'
 import { ClusteredLightGrid, GeometryResidencyManager, RenderQueueBuilder, createDirectionalShadowCascades, createRendererAdvancedCapabilities, createRendererFeatures, createRendererStats, HierarchicalDepthCuller, resolveAtmosphere, resolveColorGrading, resolveColorManagement, resolveEnvironmentLighting, resolveImageQuality, resolveOptimization, resolvePostProcessing, resolveShadowOptions, srgbToLinear, TextureResidencyManager, type RecoverableRenderer, type RendererAtmosphere, type RendererCapabilities, type RendererColorGrading, type RendererColorManagement, type RendererDiagnosticSink, type RendererEnvironmentLighting, type RendererEnvironmentMap, type RendererImageQuality, type RendererOptimizationOptions, type RendererOptions, type RendererPostProcessing, type RendererRecoveryOptions, type RendererShadowOptions, type RendererStats, type RenderSurface, type RenderItem, type ClusteredPointLight } from '@sekai64-internal/renderer'
-import { InstancedMesh, type Mesh, type Scene } from '@sekai64-internal/scene'
+import { InstancedMesh, PointField, type Mesh, type Scene } from '@sekai64-internal/scene'
 import { WebGLPostProcessPipeline } from './WebGLPostProcessPipeline.js'
 
 interface WebGLGeometry {
@@ -162,6 +162,23 @@ interface ShaderUniforms {
 }
 interface ShaderProgramState { program: WebGLProgram; uniforms: ShaderUniforms }
 interface EnvironmentBackgroundProgramState { program: WebGLProgram; inverseViewProjection: WebGLUniformLocation | null; cameraPosition: WebGLUniformLocation | null; environmentMap: WebGLUniformLocation | null; params: WebGLUniformLocation | null; outputParams: WebGLUniformLocation | null }
+interface PointFieldProgramState {
+  program: WebGLProgram
+  model: WebGLUniformLocation | null
+  viewProjection: WebGLUniformLocation | null
+  viewport: WebGLUniformLocation | null
+  directional: WebGLUniformLocation | null
+  outputParams: WebGLUniformLocation | null
+}
+interface WebGLPointFieldState {
+  vao: WebGLVertexArrayObject
+  positionBuffer: WebGLBuffer
+  colorBuffer: WebGLBuffer
+  appearanceBuffer: WebGLBuffer
+  count: number
+  version: number
+  bytes: number
+}
 interface TextureBinding { texture?: Texture; texCoord: 0 | 1 }
 interface MaterialSurface {
   color: Color
@@ -810,6 +827,68 @@ interface WebGLDisjointTimerQueryExtension {
   readonly GPU_DISJOINT_EXT: number
 }
 
+
+const pointFieldVertex = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 a_pointPosition;
+layout(location=1) in vec4 a_pointColor;
+layout(location=2) in vec2 a_pointAppearance;
+uniform mat4 u_model;
+uniform mat4 u_viewProjection;
+uniform vec2 u_viewport;
+uniform float u_directional;
+out vec2 v_corner;
+out vec4 v_color;
+out float v_intensity;
+vec2 quadCorner(int id){
+  if(id==0)return vec2(-1.0,-1.0);
+  if(id==1)return vec2( 1.0,-1.0);
+  if(id==2)return vec2(-1.0, 1.0);
+  if(id==3)return vec2(-1.0, 1.0);
+  if(id==4)return vec2( 1.0,-1.0);
+  return vec2(1.0,1.0);
+}
+void main(){
+  vec4 clip;
+  if(u_directional>0.5){
+    vec3 direction=normalize((u_model*vec4(a_pointPosition,0.0)).xyz);
+    clip=u_viewProjection*vec4(direction,0.0);
+    clip.z=clip.w*0.999999;
+  }else{
+    clip=u_viewProjection*u_model*vec4(a_pointPosition,1.0);
+  }
+  vec2 corner=quadCorner(gl_VertexID);
+  vec2 viewport=max(u_viewport,vec2(1.0));
+  float sizePx=max(a_pointAppearance.x,0.35);
+  clip.xy+=corner*(sizePx*2.0/viewport)*clip.w;
+  gl_Position=clip;
+  v_corner=corner;
+  v_color=a_pointColor;
+  v_intensity=max(a_pointAppearance.y,0.0);
+}`
+const pointFieldFragment = `#version 300 es
+precision highp float;
+in vec2 v_corner;
+in vec4 v_color;
+in float v_intensity;
+uniform vec4 u_outputParams;
+out vec4 outColor;
+vec3 toneMap(vec3 color,float mode){
+  if(mode<0.5)return color;
+  if(mode<1.5)return color/(vec3(1.0)+color);
+  vec3 x=max(vec3(0.0),color-0.004);return (x*(6.2*x+0.5))/(x*(6.2*x+1.7)+0.06);
+}
+vec3 linearToSrgb(vec3 c){vec3 lo=c*12.92;vec3 hi=1.055*pow(max(c,vec3(0.0)),vec3(1.0/2.4))-0.055;return mix(hi,lo,lessThanEqual(c,vec3(0.0031308)));}
+void main(){
+  float radius=length(v_corner);
+  float alpha=(1.0-smoothstep(0.72,1.0,radius))*v_color.a;
+  if(alpha<=0.001)discard;
+  vec3 color=max(v_color.rgb,vec3(0.0))*v_intensity*max(u_outputParams.x,0.0);
+  color=toneMap(color,u_outputParams.y);
+  if(u_outputParams.z>0.5)color=linearToSrgb(color);
+  outColor=vec4(color,alpha);
+}`
+
 export class WebGL2Renderer implements RecoverableRenderer {
   readonly backend = 'webgl2' as const
   readonly stats: RendererStats = createRendererStats()
@@ -859,6 +938,8 @@ export class WebGL2Renderer implements RecoverableRenderer {
   private environmentDiffuseTexture?: WebGLTextureState
   private environmentBrdfTexture?: WebGLTextureState
   private environmentBackgroundProgram?: EnvironmentBackgroundProgramState
+  private pointFieldProgram?: PointFieldProgramState
+  private readonly pointFields = new Map<PointField, WebGLPointFieldState>()
   private readonly environmentBackgroundInverseViewProjection = new Matrix4()
   private whiteTexture?: WebGLTextureState
   private frameIndex = 0
@@ -1061,9 +1142,11 @@ export class WebGL2Renderer implements RecoverableRenderer {
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
     }
     this.drawEnvironmentBackground(camera)
+    this.drawPointFields(scene, camera, 'directional', viewport.width, viewport.height)
     this.activeProgram = undefined
     const mainStarted = now()
     for (const item of queue.opaque) { this.drawInvertedHull(item, camera); this.drawMesh(item, camera, lights) }
+    this.drawPointFields(scene, camera, 'world', viewport.width, viewport.height)
     for (const item of queue.transparent) { this.drawInvertedHull(item, camera); this.drawMesh(item, camera, lights) }
     this.stats.mainPassMs = now() - mainStarted
     gl.bindVertexArray(null)
@@ -1079,6 +1162,88 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.stats.textureEvictions += this.textureResidency.enforce(this.frameIndex)
     this.stats.geometryEvictions += this.geometryResidency.enforce(this.frameIndex)
     this.stats.residencyMs = now() - residencyStarted
+  }
+
+  private drawPointFields(scene: Scene, camera: Camera, space: 'world' | 'directional', viewportWidth: number, viewportHeight: number): void {
+    const gl = this.gl as WebGL2RenderingContext
+    const program = this.pointFieldProgram
+    if (!program) return
+    let drew = false
+    scene.traverse(node => {
+      if (!(node instanceof PointField) || !node.worldVisible || node.disposed || node.space !== space || node.count === 0) return
+      const gpu = this.getPointField(node)
+      if (!drew) {
+        gl.useProgram(program.program)
+        gl.uniformMatrix4fv(program.viewProjection, false, camera.viewProjectionMatrix.elements)
+        gl.uniform2f(program.viewport, Math.max(1, viewportWidth), Math.max(1, viewportHeight))
+        const toneMode = this.colorManagement.toneMapping === 'none' ? 0 : this.colorManagement.toneMapping === 'reinhard' ? 1 : 2
+        gl.uniform4f(program.outputParams, this.colorManagement.exposure, toneMode, this.colorManagement.outputColorSpace === 'srgb' ? 1 : 0, 0)
+        gl.enable(gl.BLEND)
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+        gl.enable(gl.DEPTH_TEST)
+        gl.depthFunc(gl.LEQUAL)
+        gl.depthMask(false)
+        gl.disable(gl.CULL_FACE)
+        this.stats.pipelineChanges += 1
+        drew = true
+      }
+      gl.uniformMatrix4fv(program.model, false, node.worldMatrix.elements)
+      gl.uniform1f(program.directional, node.space === 'directional' ? 1 : 0)
+      gl.bindVertexArray(gpu.vao)
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, gpu.count)
+      this.stats.uniformUpdates += 2
+      this.stats.drawCalls += 1
+      this.stats.visibleObjects += 1
+      this.stats.triangles += gpu.count * 2
+      this.stats.instancesRendered += gpu.count
+      this.stats.instancedDrawCalls += 1
+    })
+    if (drew) {
+      gl.bindVertexArray(null)
+      gl.depthMask(true)
+      gl.disable(gl.BLEND)
+      gl.enable(gl.CULL_FACE)
+      gl.cullFace(gl.BACK)
+      this.activeProgram = undefined
+    }
+  }
+
+  private getPointField(field: PointField): WebGLPointFieldState {
+    const cached = this.pointFields.get(field)
+    if (cached && cached.version === field.pointVersion) return cached
+    const gl = this.gl as WebGL2RenderingContext
+    if (cached) {
+      gl.deleteVertexArray(cached.vao)
+      gl.deleteBuffer(cached.positionBuffer)
+      gl.deleteBuffer(cached.colorBuffer)
+      gl.deleteBuffer(cached.appearanceBuffer)
+      this.stats.geometryMemory = Math.max(0, this.stats.geometryMemory - cached.bytes)
+    }
+    const vao = gl.createVertexArray()
+    const positionBuffer = gl.createBuffer()
+    const colorBuffer = gl.createBuffer()
+    const appearanceBuffer = gl.createBuffer()
+    if (!vao || !positionBuffer || !colorBuffer || !appearanceBuffer) throw new Error('WebGL2 could not allocate PointField GPU resources.')
+    gl.bindVertexArray(vao)
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
+    gl.bufferData(gl.ARRAY_BUFFER, field.positions, gl.STATIC_DRAW)
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(0, 1)
+    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer)
+    gl.bufferData(gl.ARRAY_BUFFER, field.colors, gl.STATIC_DRAW)
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(1, 1)
+    const appearance = new Float32Array(field.count * 2)
+    for (let index = 0; index < field.count; index += 1) { appearance[index * 2] = field.sizes[index] ?? 1; appearance[index * 2 + 1] = field.intensities[index] ?? 1 }
+    gl.bindBuffer(gl.ARRAY_BUFFER, appearanceBuffer)
+    gl.bufferData(gl.ARRAY_BUFFER, appearance, gl.STATIC_DRAW)
+    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(2, 1)
+    gl.bindVertexArray(null)
+    const bytes = field.positions.byteLength + field.colors.byteLength + appearance.byteLength
+    const state = { vao, positionBuffer, colorBuffer, appearanceBuffer, count: field.count, version: field.pointVersion, bytes }
+    this.pointFields.set(field, state)
+    this.stats.geometryMemory += bytes
+    this.stats.gpuResourceCreations += 4
+    this.stats.gpuResourceCreationsThisFrame += 4
+    return state
   }
 
   private drawEnvironmentBackground(camera: Camera): void {
@@ -1262,6 +1427,8 @@ export class WebGL2Renderer implements RecoverableRenderer {
       if (this.outlineRegular) gl.deleteProgram(this.outlineRegular.program)
       if (this.outlineInstanced) gl.deleteProgram(this.outlineInstanced.program)
       if (this.environmentBackgroundProgram) gl.deleteProgram(this.environmentBackgroundProgram.program)
+      if (this.pointFieldProgram) gl.deleteProgram(this.pointFieldProgram.program)
+      for (const point of this.pointFields.values()) { gl.deleteVertexArray(point.vao); gl.deleteBuffer(point.positionBuffer); gl.deleteBuffer(point.colorBuffer); gl.deleteBuffer(point.appearanceBuffer) }
       for (const state of this.shaderPrograms.values()) gl.deleteProgram(state.program)
       for (const query of this.gpuTimerQueries) gl.deleteQuery(query)
     }
@@ -1273,6 +1440,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.gpuTimerExtension=null
     this.geometries.clear()
     this.instances.clear()
+    this.pointFields.clear()
     this.textures.clear()
     this.textureResidency.clear()
     this.geometryResidency.clear()
@@ -1286,6 +1454,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.depthInstanced = undefined
     this.outlineRegular = undefined
     this.environmentBackgroundProgram = undefined
+    this.pointFieldProgram = undefined
     this.outlineInstanced = undefined
     this.shaderPrograms.clear()
     this.whiteTexture = undefined
@@ -1672,9 +1841,10 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.depthInstanced = createDepthProgramState(gl, instancedDepthVertex, depthFragment)
     this.outlineRegular = createOutlineProgramState(gl, outlineVertex, outlineFragment)
     this.outlineInstanced = createOutlineProgramState(gl, instancedOutlineVertex, outlineFragment)
+    this.pointFieldProgram = createPointFieldProgramState(gl)
     this.shaderPrograms.clear()
-    this.stats.shaderCompilations += 6
-    this.stats.gpuResourceCreations += 6
+    this.stats.shaderCompilations += 7
+    this.stats.gpuResourceCreations += 7
   }
 
   private getShaderProgram(vertex: string, fragment: string): ShaderProgramState {
@@ -1836,6 +2006,14 @@ export class WebGL2Renderer implements RecoverableRenderer {
       this.stats.geometryMemory = Math.max(0, this.stats.geometryMemory - state.bytes)
       this.instances.delete(mesh)
     }
+    for (const [field, state] of this.pointFields) if (field.disposed) {
+      gl.deleteVertexArray(state.vao)
+      gl.deleteBuffer(state.positionBuffer)
+      gl.deleteBuffer(state.colorBuffer)
+      gl.deleteBuffer(state.appearanceBuffer)
+      this.stats.geometryMemory = Math.max(0, this.stats.geometryMemory - state.bytes)
+      this.pointFields.delete(field)
+    }
     for (const [texture, state] of this.textures) if (texture.disposed) {
       gl.deleteTexture(state.texture)
       this.stats.textureMemory = Math.max(0, this.stats.textureMemory - state.bytes)
@@ -1904,6 +2082,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.gpuTimerExtension=null
     this.geometries.clear()
     this.instances.clear()
+    this.pointFields.clear()
     this.textures.clear()
     this.stats.geometryMemory = 0
     this.stats.textureMemory = 0
@@ -1954,6 +2133,18 @@ function createDepthProgramState(gl: WebGL2RenderingContext, vertex: string, fra
   gl.uniform1i(uniforms.baseColorMap, 0)
   return { program, uniforms }
 }
+function createPointFieldProgramState(gl: WebGL2RenderingContext): PointFieldProgramState {
+  const program = createProgram(gl, pointFieldVertex, pointFieldFragment)
+  return {
+    program,
+    model: gl.getUniformLocation(program, 'u_model'),
+    viewProjection: gl.getUniformLocation(program, 'u_viewProjection'),
+    viewport: gl.getUniformLocation(program, 'u_viewport'),
+    directional: gl.getUniformLocation(program, 'u_directional'),
+    outputParams: gl.getUniformLocation(program, 'u_outputParams'),
+  }
+}
+
 function createEnvironmentBackgroundProgramState(gl: WebGL2RenderingContext): EnvironmentBackgroundProgramState {
   const program = createProgram(gl, environmentBackgroundVertex, environmentBackgroundFragment)
   return {
