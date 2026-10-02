@@ -1,3 +1,11 @@
+# 0.8.0-rc.46 — generic point-field rendering
+
+- Added a generic `PointField` scene primitive for compact static point sets in either `world` or camera-translation-invariant `directional` space.
+- Added dedicated WebGL2 and WebGPU point-field pipelines using one instanced six-vertex quad draw per field, pixel-sized circular anti-aliased points, per-point RGBA/intensity, depth testing without depth writes, and active MSAA parity.
+- Directional point fields ignore translation and render at far depth, making them suitable for stars while remaining domain-agnostic for any directional point dataset.
+- Added packed GPU-buffer ownership, recovery/disposal handling, memory/stat accounting, and focused parity/version regressions.
+- No astronomy package dependency or star-specific renderer API was introduced.
+
 # 0.8.0-rc.45 — WebGPU environment background depth-attachment hotfix
 
 - Fixed the WebGPU environment background pipeline so its attachment state matches the main render pass when `depth24plus` and MSAA are enabled.

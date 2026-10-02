@@ -5,7 +5,7 @@ import { collectSceneLights } from '@sekai64-internal/lighting'
 import { BasicMaterial, DepthMaterial, NormalMaterial, ShaderMaterial, StandardMaterial, Texture, TextureMaterial, type Material, type UniformValue } from '@sekai64-internal/materials'
 import { Box3, Color, Frustum, Matrix4, Vector3, type ColorInput } from '@sekai64-internal/math'
 import { ClusteredLightGrid, GeometryResidencyManager, RenderQueueBuilder, createDirectionalShadowCascades, createRendererAdvancedCapabilities, createRendererFeatures, createRendererStats, HierarchicalDepthCuller, resolveAtmosphere, resolveColorGrading, resolveColorManagement, resolveEnvironmentLighting, resolveImageQuality, resolveOptimization, resolvePostProcessing, resolveShadowOptions, srgbToLinear, TextureResidencyManager, type RecoverableRenderer, type RendererAtmosphere, type RendererCapabilities, type RendererColorGrading, type RendererColorManagement, type RendererDiagnosticSink, type RendererEnvironmentLighting, type RendererEnvironmentMap, type RendererImageQuality, type RendererOptimizationOptions, type RendererOptions, type RendererPostProcessing, type RendererRecoveryOptions, type RendererShadowOptions, type RendererStats, type RenderSurface, type ClusteredPointLight, type RenderItem } from '@sekai64-internal/renderer'
-import { InstancedMesh, type Mesh, type Scene } from '@sekai64-internal/scene'
+import { InstancedMesh, PointField, type Mesh, type Scene } from '@sekai64-internal/scene'
 import { WebGPUPostProcessPipeline } from './WebGPUPostProcessPipeline.js'
 
 interface WebGPUGeometry {
@@ -48,6 +48,16 @@ interface WebGPUShaderUniform {
   values: Float32Array
 }
 interface WebGPUInstances { matrixBuffer: GPUBuffer; colorBuffer: GPUBuffer; matrixVersion: number; colorVersion: number; bytes: number }
+interface WebGPUPointFieldState {
+  positionBuffer: GPUBuffer
+  colorBuffer: GPUBuffer
+  appearanceBuffer: GPUBuffer
+  uniformBuffer: GPUBuffer
+  bindGroup: GPUBindGroup
+  count: number
+  version: number
+  bytes: number
+}
 interface TextureBinding { texture?: Texture; texCoord: 0 | 1 }
 interface MaterialSurface {
   color: Color
@@ -440,6 +450,76 @@ fn surfaceUv(input:ShadowOutput)->vec2<f32>{var uv=select(input.uv,input.uv1,uni
 
 
 
+
+const pointFieldShader = `
+struct PointFieldUniforms {
+  viewProjection: mat4x4<f32>,
+  model: mat4x4<f32>,
+  viewportSpace: vec4<f32>,
+  outputParams: vec4<f32>,
+}
+@group(0) @binding(0) var<uniform> u: PointFieldUniforms;
+struct VertexInput {
+  @location(0) pointPosition: vec3<f32>,
+  @location(1) pointColor: vec4<f32>,
+  @location(2) appearance: vec2<f32>,
+  @builtin(vertex_index) vertexIndex: u32,
+}
+struct VertexOutput {
+  @builtin(position) position: vec4<f32>,
+  @location(0) corner: vec2<f32>,
+  @location(1) color: vec4<f32>,
+  @location(2) intensity: f32,
+}
+fn cornerForVertex(id: u32) -> vec2<f32> {
+  if (id == 0u) { return vec2<f32>(-1.0,-1.0); }
+  if (id == 1u) { return vec2<f32>( 1.0,-1.0); }
+  if (id == 2u) { return vec2<f32>(-1.0, 1.0); }
+  if (id == 3u) { return vec2<f32>(-1.0, 1.0); }
+  if (id == 4u) { return vec2<f32>( 1.0,-1.0); }
+  return vec2<f32>(1.0,1.0);
+}
+@vertex fn vertex_main(input: VertexInput) -> VertexOutput {
+  var out: VertexOutput;
+  var clip: vec4<f32>;
+  if (u.viewportSpace.z > 0.5) {
+    let direction = normalize((u.model * vec4<f32>(input.pointPosition, 0.0)).xyz);
+    clip = u.viewProjection * vec4<f32>(direction, 0.0);
+    clip.z = clip.w * 0.999999;
+  } else {
+    clip = u.viewProjection * u.model * vec4<f32>(input.pointPosition, 1.0);
+  }
+  let corner = cornerForVertex(input.vertexIndex);
+  let viewport = max(u.viewportSpace.xy, vec2<f32>(1.0,1.0));
+  let sizePx = max(input.appearance.x, 0.35);
+  clip.xy += corner * (sizePx * 2.0 / viewport) * clip.w;
+  out.position = clip;
+  out.corner = corner;
+  out.color = input.pointColor;
+  out.intensity = max(input.appearance.y, 0.0);
+  return out;
+}
+fn toneMap(color: vec3<f32>, mode: f32) -> vec3<f32> {
+  if (mode < 0.5) { return color; }
+  if (mode < 1.5) { return color / (vec3<f32>(1.0) + color); }
+  let x = max(vec3<f32>(0.0), color - vec3<f32>(0.004));
+  return (x * (6.2*x + vec3<f32>(0.5))) / (x * (6.2*x + vec3<f32>(1.7)) + vec3<f32>(0.06));
+}
+fn linearToSrgb(c: vec3<f32>) -> vec3<f32> {
+  let lo = c * 12.92;
+  let hi = 1.055 * pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0/2.4)) - vec3<f32>(0.055);
+  return select(hi, lo, c <= vec3<f32>(0.0031308));
+}
+@fragment fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  let radius = length(input.corner);
+  let alpha = (1.0 - smoothstep(0.72, 1.0, radius)) * input.color.a;
+  if (alpha <= 0.001) { discard; }
+  var color = max(input.color.rgb, vec3<f32>(0.0)) * input.intensity * max(u.outputParams.x, 0.0);
+  color = toneMap(color, u.outputParams.y);
+  if (u.outputParams.z > 0.5) { color = linearToSrgb(color); }
+  return vec4<f32>(color, alpha);
+}`
+
 export class WebGPURenderer implements RecoverableRenderer {
   readonly backend = 'webgpu' as const
   readonly stats: RendererStats = createRendererStats()
@@ -509,6 +589,11 @@ export class WebGPURenderer implements RecoverableRenderer {
   private environmentBackgroundBoundTexture?: GPUTexture
   private readonly environmentBackgroundUniformValues = new Float32Array(28)
   private readonly environmentBackgroundInverseViewProjection = new Matrix4()
+  private pointFieldBindGroupLayout?: GPUBindGroupLayout
+  private pointFieldPipeline?: GPURenderPipeline
+  private pointFieldPipelineSampleCount = 0
+  private readonly pointFields = new Map<PointField, WebGPUPointFieldState>()
+  private readonly pointFieldUniformValues = new Float32Array(40)
   private whiteTexture?: WebGPUTextureState
   private frameIndex=0
   private occlusionCuller=new HierarchicalDepthCuller(64)
@@ -697,7 +782,7 @@ export class WebGPURenderer implements RecoverableRenderer {
     const previous=this.imageQuality;this.imageQuality=resolveImageQuality({ ...this.imageQuality, ...value })
     const nextSamples=this.postProcessing.enabled?1:this.imageQuality.msaaSamples
     const samplesChanged=nextSamples!==this.sampleCount
-    if(samplesChanged){this.sampleCount=nextSamples;this.pipelines.clear();this.shaderPipelines.clear();this.outlinePipelines.clear();this.shadowPipelines.clear()}
+    if(samplesChanged){this.sampleCount=nextSamples;this.pipelines.clear();this.shaderPipelines.clear();this.outlinePipelines.clear();this.shadowPipelines.clear();this.pointFieldPipeline=undefined;this.pointFieldPipelineSampleCount=0}
     if(previous.renderScale!==this.imageQuality.renderScale||samplesChanged)this.resize(this.width,this.height,this.pixelRatio)
   }
   setAtmosphere(value: Partial<RendererAtmosphere>): void { this.atmosphere = resolveAtmosphere({ ...this.atmosphere, ...value }) }
@@ -705,7 +790,7 @@ export class WebGPURenderer implements RecoverableRenderer {
   setPostProcessing(value: Partial<RendererPostProcessing>): void {
     const wasEnabled=this.postProcessing.enabled;this.postProcessing=resolvePostProcessing({ ...this.postProcessing, ...value })
     const nextSamples=this.postProcessing.enabled?1:this.imageQuality.msaaSamples
-    if(nextSamples!==this.sampleCount||wasEnabled!==this.postProcessing.enabled){this.sampleCount=nextSamples;this.pipelines.clear();this.shaderPipelines.clear();this.outlinePipelines.clear();this.resize(this.width,this.height,this.pixelRatio)}
+    if(nextSamples!==this.sampleCount||wasEnabled!==this.postProcessing.enabled){this.sampleCount=nextSamples;this.pipelines.clear();this.shaderPipelines.clear();this.outlinePipelines.clear();this.pointFieldPipeline=undefined;this.pointFieldPipelineSampleCount=0;this.resize(this.width,this.height,this.pixelRatio)}
   }
   setOptimization(value: Partial<RendererOptimizationOptions>): void {
     const previous=this.optimization
@@ -770,8 +855,11 @@ export class WebGPURenderer implements RecoverableRenderer {
     const mainStarted=now()
     const pass = encoder.beginRenderPass({ label: 'Sekai64 main pass', colorAttachments: [colorAttachment], depthStencilAttachment: { view: depthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' } })
     this.drawEnvironmentBackground(pass, camera)
+    this.drawPointFields(pass, scene, camera, 'directional', outputWidth, outputHeight)
     let activePipeline: GPURenderPipeline | undefined
-    for (const item of [...queue.opaque, ...queue.transparent]) {
+    let worldPointFieldsDrawn = false
+    for (const [itemIndex, item] of [...queue.opaque, ...queue.transparent].entries()) {
+      if (!worldPointFieldsDrawn && itemIndex === queue.opaque.length) { this.drawPointFields(pass, scene, camera, 'world', outputWidth, outputHeight); activePipeline = undefined; worldPointFieldsDrawn = true }
       const mesh = item.mesh
       const material = item.material
       if (material instanceof ShaderMaterial) {
@@ -896,6 +984,7 @@ export class WebGPURenderer implements RecoverableRenderer {
       this.stats.drawCalls += 1; this.stats.visibleObjects += 1; this.stats.triangles += (item.count / 3) * instanceCount;this.stats.materialChanges+=1
       if(mesh instanceof InstancedMesh){this.stats.instancedDrawCalls+=1;this.stats.instancesRendered+=instanceCount}
     }
+    if (!worldPointFieldsDrawn) this.drawPointFields(pass, scene, camera, 'world', outputWidth, outputHeight)
     pass.end()
     this.stats.mainPassMs=now()-mainStarted
     const postStarted=now()
@@ -907,6 +996,91 @@ export class WebGPURenderer implements RecoverableRenderer {
     device.queue.submit([encoder.finish()])
     if (readbackScheduled) this.readGpuTimestamps(device)
     updateFrameStats(this.stats,frameStart,this.lastFrameTime);this.lastFrameTime=frameStart
+  }
+
+  private drawPointFields(pass: GPURenderPassEncoder, scene: Scene, camera: Camera, space: 'world' | 'directional', viewportWidth: number, viewportHeight: number): void {
+    const device = this.device as GPUDevice
+    const pipeline = this.getPointFieldPipeline()
+    let active = false
+    scene.traverse(node => {
+      if (!(node instanceof PointField) || !node.worldVisible || node.disposed || node.space !== space || node.count === 0) return
+      const state = this.getPointField(node)
+      const values = this.pointFieldUniformValues
+      values.fill(0)
+      values.set(camera.viewProjectionMatrix.elements, 0)
+      values.set(node.worldMatrix.elements, 16)
+      values.set([Math.max(1, viewportWidth), Math.max(1, viewportHeight), node.space === 'directional' ? 1 : 0, 0], 32)
+      const toneMode = this.colorManagement.toneMapping === 'none' ? 0 : this.colorManagement.toneMapping === 'reinhard' ? 1 : 2
+      values.set([this.colorManagement.exposure, toneMode, this.colorManagement.outputColorSpace === 'srgb' ? 1 : 0, 0], 36)
+      device.queue.writeBuffer(state.uniformBuffer, 0, values)
+      if (!active) { pass.setPipeline(pipeline); this.stats.pipelineChanges += 1; active = true }
+      pass.setBindGroup(0, state.bindGroup)
+      pass.setVertexBuffer(0, state.positionBuffer)
+      pass.setVertexBuffer(1, state.colorBuffer)
+      pass.setVertexBuffer(2, state.appearanceBuffer)
+      pass.draw(6, state.count)
+      this.stats.uniformUpdates += 1
+      this.stats.bindGroupChanges += 1
+      this.stats.drawCalls += 1
+      this.stats.visibleObjects += 1
+      this.stats.triangles += state.count * 2
+      this.stats.instancesRendered += state.count
+      this.stats.instancedDrawCalls += 1
+    })
+  }
+
+  private getPointFieldPipeline(): GPURenderPipeline {
+    const device = this.device as GPUDevice
+    if (!this.pointFieldBindGroupLayout) {
+      this.pointFieldBindGroupLayout = device.createBindGroupLayout({ label: 'Sekai64 point field resources', entries: [
+        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+      ] })
+      this.stats.gpuResourceCreations += 1; this.stats.gpuResourceCreationsThisFrame += 1
+    }
+    if (!this.pointFieldPipeline || this.pointFieldPipelineSampleCount !== this.sampleCount) {
+      const module = device.createShaderModule({ label: 'Sekai64 point field shader', code: pointFieldShader })
+      const layout = device.createPipelineLayout({ label: 'Sekai64 point field pipeline layout', bindGroupLayouts: [this.pointFieldBindGroupLayout] })
+      this.pointFieldPipeline = device.createRenderPipeline({
+        label: 'Sekai64 point field pipeline', layout,
+        vertex: { module, entryPoint: 'vertex_main', buffers: [
+          { arrayStride: 12, stepMode: 'instance', attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
+          { arrayStride: 16, stepMode: 'instance', attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x4' }] },
+          { arrayStride: 8, stepMode: 'instance', attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x2' }] },
+        ] },
+        fragment: { module, entryPoint: 'fragment_main', targets: [{ format: this.format, blend: { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } } }] },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less-equal' },
+        multisample: { count: this.sampleCount },
+      })
+      this.pointFieldPipelineSampleCount = this.sampleCount
+      this.stats.shaderCompilations += 1; this.stats.gpuResourceCreations += 3; this.stats.gpuResourceCreationsThisFrame += 3
+    }
+    return this.pointFieldPipeline
+  }
+
+  private getPointField(field: PointField): WebGPUPointFieldState {
+    const cached = this.pointFields.get(field)
+    if (cached && cached.version === field.pointVersion) return cached
+    const device = this.device as GPUDevice
+    if (!this.pointFieldBindGroupLayout) this.getPointFieldPipeline()
+    if (cached) {
+      cached.positionBuffer.destroy(); cached.colorBuffer.destroy(); cached.appearanceBuffer.destroy(); cached.uniformBuffer.destroy()
+      this.stats.geometryMemory = Math.max(0, this.stats.geometryMemory - cached.bytes)
+    }
+    const appearance = new Float32Array(field.count * 2)
+    for (let index = 0; index < field.count; index += 1) { appearance[index * 2] = field.sizes[index] ?? 1; appearance[index * 2 + 1] = field.intensities[index] ?? 1 }
+    const positionBuffer = createBuffer(device, field.positions, GPUBufferUsage.VERTEX, `Sekai64 point field positions: ${field.id}`)
+    const colorBuffer = createBuffer(device, field.colors, GPUBufferUsage.VERTEX, `Sekai64 point field colors: ${field.id}`)
+    const appearanceBuffer = createBuffer(device, appearance, GPUBufferUsage.VERTEX, `Sekai64 point field appearance: ${field.id}`)
+    const uniformBuffer = device.createBuffer({ label: `Sekai64 point field uniforms: ${field.id}`, size: this.pointFieldUniformValues.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+    const bindGroup = device.createBindGroup({ label: `Sekai64 point field bind group: ${field.id}`, layout: this.pointFieldBindGroupLayout as GPUBindGroupLayout, entries: [{ binding: 0, resource: { buffer: uniformBuffer } }] })
+    const bytes = field.positions.byteLength + field.colors.byteLength + appearance.byteLength + this.pointFieldUniformValues.byteLength
+    const state = { positionBuffer, colorBuffer, appearanceBuffer, uniformBuffer, bindGroup, count: field.count, version: field.pointVersion, bytes }
+    this.pointFields.set(field, state)
+    this.stats.geometryMemory += bytes
+    this.stats.geometryUploads += 3
+    this.stats.gpuResourceCreations += 5; this.stats.gpuResourceCreationsThisFrame += 5
+    return state
   }
 
   private drawEnvironmentBackground(pass: GPURenderPassEncoder, camera: Camera): void {
@@ -1072,6 +1246,8 @@ export class WebGPURenderer implements RecoverableRenderer {
     this.releaseShadowResources()
     this.releaseEnvironmentTexture()
     this.environmentBackgroundUniformBuffer?.destroy(); this.environmentBackgroundUniformBuffer=undefined; this.environmentBackgroundBindGroup=undefined; this.environmentBackgroundBindGroupLayout=undefined; this.environmentBackgroundPipeline=undefined; this.environmentBackgroundPipelineSampleCount=0; this.environmentBackgroundBoundTexture=undefined
+    for (const field of this.pointFields.values()) { field.positionBuffer.destroy(); field.colorBuffer.destroy(); field.appearanceBuffer.destroy(); field.uniformBuffer.destroy() }
+    this.pointFields.clear(); this.pointFieldBindGroupLayout=undefined; this.pointFieldPipeline=undefined; this.pointFieldPipelineSampleCount=0
     for (const geometry of this.geometries.values()) { geometry.positionBuffer.destroy(); geometry.normalBuffer.destroy(); geometry.uvBuffer.destroy(); geometry.uv1Buffer.destroy(); geometry.colorBuffer.destroy(); geometry.tangentBuffer.destroy(); geometry.indexBuffer?.destroy() }
     for (const uniforms of this.uniforms.values()) for (const uniform of uniforms.values()) uniform.buffer.destroy()
     for (const uniforms of this.shaderUniforms.values()) for (const uniform of uniforms.values()) uniform.buffer.destroy()
@@ -1540,6 +1716,11 @@ export class WebGPURenderer implements RecoverableRenderer {
       state.colorBuffer.destroy()
       this.stats.geometryMemory = Math.max(0, this.stats.geometryMemory - state.bytes)
       this.instances.delete(mesh)
+    }
+    for (const [field, state] of this.pointFields) if (field.disposed) {
+      state.positionBuffer.destroy(); state.colorBuffer.destroy(); state.appearanceBuffer.destroy(); state.uniformBuffer.destroy()
+      this.stats.geometryMemory = Math.max(0, this.stats.geometryMemory - state.bytes)
+      this.pointFields.delete(field)
     }
     for (const [texture, state] of this.textures) if (texture.disposed) {
       state.texture.destroy()

@@ -36,6 +36,7 @@ model.dispose()
 - glTF/GLB loading, including binary VRM containers
 - PBR materials, MToon/VRM material support, textures, lights, cameras, and picking
 - Optional animation, environment, streaming, recovery, large-scene, dynamic-texture, and WebXR modules
+- Generic packed `PointField` scene primitive with world-space or translation-invariant directional rendering in WebGL2/WebGPU
 - Skeleton animation, morph targets, clips, mixers, crossfades, and markers
 - HDR environment lighting and renderer quality controls
 - Orbit and first-person controls

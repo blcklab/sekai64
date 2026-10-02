@@ -1,3 +1,8 @@
+## 0.8.0-rc.46 — generic point-field rendering
+
+- Public package now exports the generic `PointField` scene primitive and WebGL2/WebGPU renderer support assembled from the internal workspaces.
+- Runtime `SEKAI64_VERSION` is `0.8.0-rc.46`.
+
 ## 0.8.0-rc.33 — WebGPU sampler compatibility
 
 - Fixed black-screen failures on glTF/VRM assets whose authored samplers use nearest or nearest-mipmap filtering while high anisotropy is enabled.
