@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/core",
-  "version": "0.8.0-rc.46",
+  "version": "0.8.0-rc.47",
   "description": "Private Sekai64 workspace module: core. Bundled into @blcklab/sekai64.",
   "type": "module",
   "sideEffects": false,

@@ -1212,6 +1212,21 @@ export class WebGL2Renderer implements RecoverableRenderer {
     const cached = this.pointFields.get(field)
     if (cached && cached.version === field.pointVersion) return cached
     const gl = this.gl as WebGL2RenderingContext
+    const appearance = new Float32Array(field.count * 2)
+    for (let index = 0; index < field.count; index += 1) { appearance[index * 2] = field.sizes[index] ?? 1; appearance[index * 2 + 1] = field.intensities[index] ?? 1 }
+
+    if (cached && cached.count === field.count) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, cached.positionBuffer)
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, field.positions)
+      gl.bindBuffer(gl.ARRAY_BUFFER, cached.colorBuffer)
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, field.colors)
+      gl.bindBuffer(gl.ARRAY_BUFFER, cached.appearanceBuffer)
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, appearance)
+      cached.version = field.pointVersion
+      this.stats.geometryUploads += 3
+      return cached
+    }
+
     if (cached) {
       gl.deleteVertexArray(cached.vao)
       gl.deleteBuffer(cached.positionBuffer)
@@ -1226,21 +1241,20 @@ export class WebGL2Renderer implements RecoverableRenderer {
     if (!vao || !positionBuffer || !colorBuffer || !appearanceBuffer) throw new Error('WebGL2 could not allocate PointField GPU resources.')
     gl.bindVertexArray(vao)
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
-    gl.bufferData(gl.ARRAY_BUFFER, field.positions, gl.STATIC_DRAW)
+    gl.bufferData(gl.ARRAY_BUFFER, field.positions, gl.DYNAMIC_DRAW)
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(0, 1)
     gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer)
-    gl.bufferData(gl.ARRAY_BUFFER, field.colors, gl.STATIC_DRAW)
+    gl.bufferData(gl.ARRAY_BUFFER, field.colors, gl.DYNAMIC_DRAW)
     gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(1, 1)
-    const appearance = new Float32Array(field.count * 2)
-    for (let index = 0; index < field.count; index += 1) { appearance[index * 2] = field.sizes[index] ?? 1; appearance[index * 2 + 1] = field.intensities[index] ?? 1 }
     gl.bindBuffer(gl.ARRAY_BUFFER, appearanceBuffer)
-    gl.bufferData(gl.ARRAY_BUFFER, appearance, gl.STATIC_DRAW)
+    gl.bufferData(gl.ARRAY_BUFFER, appearance, gl.DYNAMIC_DRAW)
     gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(2, 1)
     gl.bindVertexArray(null)
     const bytes = field.positions.byteLength + field.colors.byteLength + appearance.byteLength
     const state = { vao, positionBuffer, colorBuffer, appearanceBuffer, count: field.count, version: field.pointVersion, bytes }
     this.pointFields.set(field, state)
     this.stats.geometryMemory += bytes
+    this.stats.geometryUploads += 3
     this.stats.gpuResourceCreations += 4
     this.stats.gpuResourceCreationsThisFrame += 4
     return state

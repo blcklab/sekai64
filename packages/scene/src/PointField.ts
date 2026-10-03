@@ -18,35 +18,52 @@ export interface PointFieldOptions extends NodeOptions {
 }
 
 /**
- * Immutable-style packed point set optimized for renderer-owned point-field drawing.
+ * Packed point set optimized for renderer-owned point-field drawing.
  * `directional` space interprets positions as direction vectors and ignores translation.
+ * `setPoints()` replaces the packed point payload without replacing the scene node.
  */
 export class PointField extends Node {
   space: PointFieldSpace
-  readonly positions: Float32Array
-  readonly colors: Float32Array
-  readonly sizes: Float32Array
-  readonly intensities: Float32Array
-  readonly count: number
-  readonly pointVersion = 1
+  positions: Float32Array = new Float32Array(0)
+  colors: Float32Array = new Float32Array(0)
+  sizes: Float32Array = new Float32Array(0)
+  intensities: Float32Array = new Float32Array(0)
+  count = 0
+  pointVersion = 0
+
+  private readonly defaultColor: readonly [number, number, number, number]
+  private readonly defaultSize: number
+  private readonly defaultIntensity: number
 
   constructor(options: PointFieldOptions = {}) {
     super(options)
     this.space = options.space ?? 'world'
-    const points = options.points ?? []
-    const defaultColor = normalizeColor(options.defaultColor ?? [1, 1, 1, 1])
-    const defaultSize = finitePositive(options.defaultSize, 1)
-    const defaultIntensity = finiteNonNegative(options.defaultIntensity, 1)
-    this.count = points.length
-    this.positions = new Float32Array(this.count * 3)
-    this.colors = new Float32Array(this.count * 4)
-    this.sizes = new Float32Array(this.count)
-    this.intensities = new Float32Array(this.count)
+    this.defaultColor = normalizeColor(options.defaultColor ?? [1, 1, 1, 1])
+    this.defaultSize = finitePositive(options.defaultSize, 1)
+    this.defaultIntensity = finiteNonNegative(options.defaultIntensity, 1)
+    this.setPoints(options.points ?? [])
+  }
+
+  /**
+   * Replaces the packed point payload and increments `pointVersion` so renderers can
+   * refresh GPU buffers. Existing typed-array allocations are reused when the point
+   * count is unchanged, which keeps high-frequency runtime updates allocation-light.
+   */
+  setPoints(points: readonly PointFieldPoint[]): this {
+    if (!Array.isArray(points)) throw new Error('PointField.setPoints(points) requires an array.')
+    const nextCount = points.length
+    if (nextCount !== this.count) {
+      this.count = nextCount
+      this.positions = new Float32Array(this.count * 3)
+      this.colors = new Float32Array(this.count * 4)
+      this.sizes = new Float32Array(this.count)
+      this.intensities = new Float32Array(this.count)
+    }
 
     for (let index = 0; index < points.length; index += 1) {
       const point = points[index]!
       const position = normalizePosition(point.position, this.space)
-      const color = normalizeColor(point.color ?? defaultColor)
+      const color = normalizeColor(point.color ?? this.defaultColor)
       const offset3 = index * 3
       const offset4 = index * 4
       this.positions[offset3] = position[0]
@@ -56,9 +73,12 @@ export class PointField extends Node {
       this.colors[offset4 + 1] = color[1]
       this.colors[offset4 + 2] = color[2]
       this.colors[offset4 + 3] = color[3]
-      this.sizes[index] = finitePositive(point.size, defaultSize)
-      this.intensities[index] = finiteNonNegative(point.intensity, defaultIntensity)
+      this.sizes[index] = finitePositive(point.size, this.defaultSize)
+      this.intensities[index] = finiteNonNegative(point.intensity, this.defaultIntensity)
     }
+
+    this.pointVersion += 1
+    return this
   }
 
   override clone(recursive = true): PointField {
@@ -68,7 +88,18 @@ export class PointField extends Node {
       size: this.sizes[index]!,
       intensity: this.intensities[index]!,
     }))
-    const copy = new PointField({ id: this.id, name: this.name, tags: [...this.tags], visible: this.visible, layerMask: this.layerMask, space: this.space, points })
+    const copy = new PointField({
+      id: this.id,
+      name: this.name,
+      tags: [...this.tags],
+      visible: this.visible,
+      layerMask: this.layerMask,
+      space: this.space,
+      defaultColor: this.defaultColor,
+      defaultSize: this.defaultSize,
+      defaultIntensity: this.defaultIntensity,
+      points,
+    })
     copy.position.copy(this.position)
     copy.rotation.copy(this.rotation)
     copy.scale.copy(this.scale)

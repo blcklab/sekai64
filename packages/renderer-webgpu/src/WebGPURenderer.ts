@@ -1063,15 +1063,25 @@ export class WebGPURenderer implements RecoverableRenderer {
     if (cached && cached.version === field.pointVersion) return cached
     const device = this.device as GPUDevice
     if (!this.pointFieldBindGroupLayout) this.getPointFieldPipeline()
+    const appearance = new Float32Array(field.count * 2)
+    for (let index = 0; index < field.count; index += 1) { appearance[index * 2] = field.sizes[index] ?? 1; appearance[index * 2 + 1] = field.intensities[index] ?? 1 }
+
+    if (cached && cached.count === field.count) {
+      device.queue.writeBuffer(cached.positionBuffer, 0, field.positions)
+      device.queue.writeBuffer(cached.colorBuffer, 0, field.colors)
+      device.queue.writeBuffer(cached.appearanceBuffer, 0, appearance)
+      cached.version = field.pointVersion
+      this.stats.geometryUploads += 3
+      return cached
+    }
+
     if (cached) {
       cached.positionBuffer.destroy(); cached.colorBuffer.destroy(); cached.appearanceBuffer.destroy(); cached.uniformBuffer.destroy()
       this.stats.geometryMemory = Math.max(0, this.stats.geometryMemory - cached.bytes)
     }
-    const appearance = new Float32Array(field.count * 2)
-    for (let index = 0; index < field.count; index += 1) { appearance[index * 2] = field.sizes[index] ?? 1; appearance[index * 2 + 1] = field.intensities[index] ?? 1 }
-    const positionBuffer = createBuffer(device, field.positions, GPUBufferUsage.VERTEX, `Sekai64 point field positions: ${field.id}`)
-    const colorBuffer = createBuffer(device, field.colors, GPUBufferUsage.VERTEX, `Sekai64 point field colors: ${field.id}`)
-    const appearanceBuffer = createBuffer(device, appearance, GPUBufferUsage.VERTEX, `Sekai64 point field appearance: ${field.id}`)
+    const positionBuffer = createBuffer(device, field.positions, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, `Sekai64 point field positions: ${field.id}`)
+    const colorBuffer = createBuffer(device, field.colors, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, `Sekai64 point field colors: ${field.id}`)
+    const appearanceBuffer = createBuffer(device, appearance, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, `Sekai64 point field appearance: ${field.id}`)
     const uniformBuffer = device.createBuffer({ label: `Sekai64 point field uniforms: ${field.id}`, size: this.pointFieldUniformValues.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
     const bindGroup = device.createBindGroup({ label: `Sekai64 point field bind group: ${field.id}`, layout: this.pointFieldBindGroupLayout as GPUBindGroupLayout, entries: [{ binding: 0, resource: { buffer: uniformBuffer } }] })
     const bytes = field.positions.byteLength + field.colors.byteLength + appearance.byteLength + this.pointFieldUniformValues.byteLength

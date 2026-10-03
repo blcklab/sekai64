@@ -1,3 +1,11 @@
+## 0.8.0-rc.47 — runtime-mutable point fields
+
+- Add `PointField.setPoints()` for provider-driven runtime updates without replacing the scene node.
+- Reuse packed CPU arrays when the point count is stable and increment `pointVersion` for renderer synchronization.
+- WebGL2 refreshes stable-count point payloads with `bufferSubData`; WebGPU uses `queue.writeBuffer`, avoiding GPU buffer recreation during time-slider/real-time updates.
+- Reallocate GPU point buffers only when the point count changes.
+- Keep point fields provider/domain agnostic; no SiriusX or astronomy dependency is introduced.
+
 ## 0.8.0-rc.46 — generic point-field rendering
 
 - Public package now exports the generic `PointField` scene primitive and WebGL2/WebGPU renderer support assembled from the internal workspaces.
