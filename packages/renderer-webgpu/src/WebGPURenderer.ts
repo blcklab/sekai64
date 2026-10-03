@@ -4,7 +4,7 @@ import type { Geometry } from '@sekai64-internal/geometry'
 import { collectSceneLights } from '@sekai64-internal/lighting'
 import { BasicMaterial, DepthMaterial, NormalMaterial, ShaderMaterial, StandardMaterial, Texture, TextureMaterial, type Material, type UniformValue } from '@sekai64-internal/materials'
 import { Box3, Color, Frustum, Matrix4, Vector3, type ColorInput } from '@sekai64-internal/math'
-import { ClusteredLightGrid, GeometryResidencyManager, RenderQueueBuilder, createDirectionalShadowCascades, createRendererAdvancedCapabilities, createRendererFeatures, createRendererStats, HierarchicalDepthCuller, resolveAtmosphere, resolveColorGrading, resolveColorManagement, resolveEnvironmentLighting, resolveImageQuality, resolveOptimization, resolvePostProcessing, resolveShadowOptions, srgbToLinear, TextureResidencyManager, type RecoverableRenderer, type RendererAtmosphere, type RendererCapabilities, type RendererColorGrading, type RendererColorManagement, type RendererDiagnosticSink, type RendererEnvironmentLighting, type RendererEnvironmentMap, type RendererImageQuality, type RendererOptimizationOptions, type RendererOptions, type RendererPostProcessing, type RendererRecoveryOptions, type RendererShadowOptions, type RendererStats, type RenderSurface, type ClusteredPointLight, type RenderItem } from '@sekai64-internal/renderer'
+import { ClusteredLightGrid, GeometryResidencyManager, RenderQueueBuilder, createDirectionalShadowCascades, createProceduralCloudNoise, createRendererAdvancedCapabilities, createRendererFeatures, createRendererStats, HierarchicalDepthCuller, resolveAtmosphere, resolveColorGrading, resolveColorManagement, resolveEnvironmentLighting, resolveImageQuality, resolveOptimization, resolvePostProcessing, resolveProceduralCloudState, resolveShadowOptions, srgbToLinear, TextureResidencyManager, type RecoverableRenderer, type RendererAtmosphere, type RendererCapabilities, type RendererColorGrading, type RendererColorManagement, type RendererDiagnosticSink, type RendererEnvironmentLighting, type RendererEnvironmentMap, type RendererImageQuality, type RendererOptimizationOptions, type RendererOptions, type RendererPostProcessing, type RendererProceduralCloudInput, type RendererProceduralCloudState, type RendererRecoveryOptions, type RendererShadowOptions, type RendererStats, type RenderSurface, type ClusteredPointLight, type RenderItem } from '@sekai64-internal/renderer'
 import { InstancedMesh, PointField, type Mesh, type Scene } from '@sekai64-internal/scene'
 import { WebGPUPostProcessPipeline } from './WebGPUPostProcessPipeline.js'
 
@@ -124,17 +124,22 @@ interface MaterialSurface {
 
 const environmentBackgroundShader = `
 const PI:f32=3.141592653589793;
-struct BackgroundUniforms { inverseViewProjection: mat4x4<f32>, cameraPosition: vec4<f32>, params: vec4<f32>, outputParams: vec4<f32> }
+struct BackgroundUniforms { inverseViewProjection: mat4x4<f32>, cameraPosition: vec4<f32>, params: vec4<f32>, outputParams: vec4<f32>, cloudParams: vec4<f32>, cloudMotion: vec4<f32>, cloudSun: vec4<f32> }
 @group(0) @binding(0) var<uniform> background: BackgroundUniforms;
 @group(0) @binding(1) var environmentSampler: sampler;
 @group(0) @binding(2) var environmentTexture: texture_2d<f32>;
+@group(0) @binding(3) var cloudSampler: sampler;
+@group(0) @binding(4) var cloudTexture: texture_2d<f32>;
 struct BackgroundVertexOutput { @builtin(position) position: vec4<f32>, @location(0) ndc: vec2<f32> }
 @vertex fn background_vertex(@builtin(vertex_index) index:u32)->BackgroundVertexOutput{var positions=array<vec2<f32>,3>(vec2<f32>(-1.0,-1.0),vec2<f32>(3.0,-1.0),vec2<f32>(-1.0,3.0));let p=positions[index];var output:BackgroundVertexOutput;output.position=vec4<f32>(p,0.999999,1.0);output.ndc=p;return output;}
 fn linearChannelToSrgb(value:f32)->f32{return select(1.055*pow(max(value,0.0),1.0/2.4)-0.055,12.92*value,value<=0.0031308);}
 fn linearToSrgb(value:vec3<f32>)->vec3<f32>{return vec3<f32>(linearChannelToSrgb(value.r),linearChannelToSrgb(value.g),linearChannelToSrgb(value.b));}
 fn toneMap(color:vec3<f32>,mode:f32)->vec3<f32>{let c=max(color,vec3<f32>(0.0));if(mode<0.5){return c;}if(mode<1.5){return c/(vec3<f32>(1.0)+c);}if(mode>2.5){return c/(vec3<f32>(1.0)+max(c,vec3<f32>(0.0))*0.6);}return clamp((c*(2.51*c+vec3<f32>(0.03)))/(c*(2.43*c+vec3<f32>(0.59))+vec3<f32>(0.14)),vec3<f32>(0.0),vec3<f32>(1.0));}
 fn environmentUv(direction:vec3<f32>)->vec2<f32>{let d=normalize(direction);let phi=atan2(d.z,d.x)+background.params.y;return vec2<f32>(fract(phi/(2.0*PI)+0.5),acos(clamp(d.y,-1.0,1.0))/PI);}
-@fragment fn background_fragment(input:BackgroundVertexOutput)->@location(0) vec4<f32>{let world=background.inverseViewProjection*vec4<f32>(input.ndc,1.0,1.0);let direction=normalize(world.xyz/max(abs(world.w),0.000001)-background.cameraPosition.xyz);var color=textureSampleLevel(environmentTexture,environmentSampler,environmentUv(direction),0.0).rgb*max(background.params.x,0.0);if(background.params.z>0.5){color=toneMap(color*background.outputParams.x,background.outputParams.y);}if(background.outputParams.z>0.5){color=linearToSrgb(color);}return vec4<f32>(clamp(color,vec3<f32>(0.0),vec3<f32>(1.0)),1.0);}`
+fn smoothNoise(uv:vec2<f32>,channel:i32)->f32{let n=textureSampleLevel(cloudTexture,cloudSampler,fract(uv),0.0);if(channel==0){return n.r;}if(channel==1){return n.g;}if(channel==2){return n.b;}return n.a;}
+fn cloudField(base:vec2<f32>,evolution:f32)->f32{let warp=smoothNoise(base*0.18+vec2<f32>(evolution*0.0027,-evolution*0.0019),3);let w=vec2<f32>(warp-0.5)*0.22;let large=smoothNoise(base*0.36+w+vec2<f32>(evolution*0.00073,evolution*0.00031),0);let medium=smoothNoise(base*0.92+w*1.7+vec2<f32>(-evolution*0.00117,evolution*0.00089),1);let small=smoothNoise(base*2.35+w*2.6+vec2<f32>(evolution*0.00191,-evolution*0.00143),2);let erosion=abs(small*2.0-1.0);return clamp(large*0.52+medium*0.36+small*0.18-erosion*0.06,0.0,1.0);}
+fn proceduralCloud(direction:vec3<f32>)->vec4<f32>{if(background.cloudParams.x<0.5||background.cloudParams.y<=0.0||direction.y<=0.0){return vec4<f32>(0.0);}let vertical=clamp(direction.y,0.0,1.0);let perspective=0.72+0.38/max(0.22,vertical+0.18);let c=cos(background.params.y);let s=sin(background.params.y);let xz=vec2<f32>(c*direction.x-s*direction.z,s*direction.x+c*direction.z);let base=xz*background.cloudParams.w*perspective+background.cloudMotion.xy;let field=cloudField(base,background.cloudMotion.z);let threshold=mix(0.79,0.37,background.cloudParams.y);let body=smoothstep(threshold-0.045,threshold+0.12,field);let horizonFade=smoothstep(0.015,0.14,vertical);let amount=clamp(body*background.cloudParams.z*horizonFade,0.0,1.0);if(amount<=0.0001){return vec4<f32>(0.0);}let eps=0.045;let gx=cloudField(base+vec2<f32>(eps,0.0),background.cloudMotion.z)-cloudField(base-vec2<f32>(eps,0.0),background.cloudMotion.z);let gz=cloudField(base+vec2<f32>(0.0,eps),background.cloudMotion.z)-cloudField(base-vec2<f32>(0.0,eps),background.cloudMotion.z);let pseudoNormal=normalize(vec3<f32>(-gx*4.6,1.0,-gz*4.6));let sunDirection=normalize(background.cloudSun.xyz);let diffuse=clamp(dot(pseudoNormal,sunDirection),0.0,1.0);let sunFacing=clamp(dot(direction,sunDirection),0.0,1.0);let interior=smoothstep(threshold+0.035,threshold+0.2,field);let coolShadow=vec3<f32>(0.64,0.72,0.92);let warmLight=vec3<f32>(1.34,1.22,1.08);let ambientCloud=vec3<f32>(0.9,0.96,1.08);let sunStrength=clamp(background.cloudSun.w/8.0,0.0,1.0);let lightMix=0.1+diffuse*0.9*sunStrength;let lit=mix(coolShadow,warmLight,lightMix);var cloudColor=mix(ambientCloud,lit,0.82);let silverLining=(1.0-interior)*pow(sunFacing,5.0)*0.26*sunStrength;let baseShade=1.0-interior*(0.13+(1.0-vertical)*0.11);cloudColor=cloudColor*baseShade+vec3<f32>(silverLining,silverLining*0.92,silverLining*0.72);return vec4<f32>(cloudColor,amount);}
+@fragment fn background_fragment(input:BackgroundVertexOutput)->@location(0) vec4<f32>{let world=background.inverseViewProjection*vec4<f32>(input.ndc,1.0,1.0);let direction=normalize(world.xyz/max(abs(world.w),0.000001)-background.cameraPosition.xyz);var color=textureSampleLevel(environmentTexture,environmentSampler,environmentUv(direction),0.0).rgb*max(background.params.x,0.0);let cloud=proceduralCloud(direction);color=mix(color,cloud.rgb,cloud.a);if(background.params.z>0.5){color=toneMap(color*background.outputParams.x,background.outputParams.y);}if(background.outputParams.z>0.5){color=linearToSrgb(color);}return vec4<f32>(clamp(color,vec3<f32>(0.0),vec3<f32>(1.0)),1.0);}`
 
 function createShaderSource(instanced: boolean): string { return `
 const MAX_POINT_LIGHTS:u32=8u;
@@ -581,13 +586,17 @@ export class WebGPURenderer implements RecoverableRenderer {
   private environmentTexture?: WebGPUTextureState
   private environmentDiffuseTexture?: WebGPUTextureState
   private environmentBrdfTexture?: WebGPUTextureState
+  private proceduralClouds: RendererProceduralCloudState = resolveProceduralCloudState()
+  private cloudNoiseTexture?: WebGPUTextureState
+  private cloudNoiseSeed = Number.NaN
   private environmentBackgroundBindGroupLayout?: GPUBindGroupLayout
   private environmentBackgroundPipeline?: GPURenderPipeline
   private environmentBackgroundPipelineSampleCount = 0
   private environmentBackgroundUniformBuffer?: GPUBuffer
   private environmentBackgroundBindGroup?: GPUBindGroup
   private environmentBackgroundBoundTexture?: GPUTexture
-  private readonly environmentBackgroundUniformValues = new Float32Array(28)
+  private environmentBackgroundBoundCloudTexture?: GPUTexture
+  private readonly environmentBackgroundUniformValues = new Float32Array(40)
   private readonly environmentBackgroundInverseViewProjection = new Matrix4()
   private pointFieldBindGroupLayout?: GPUBindGroupLayout
   private pointFieldPipeline?: GPURenderPipeline
@@ -726,6 +735,7 @@ export class WebGPURenderer implements RecoverableRenderer {
     this.shadowPipelineLayout = device.createPipelineLayout({ label: 'Sekai64 shadow pipeline layout', bindGroupLayouts: [this.shadowBindGroupLayout] })
     this.whiteTexture = createWhiteTexture(device)
     if (this.environmentMap) this.environmentTexture = this.uploadEnvironmentMap(this.environmentMap)
+    if (this.proceduralClouds.enabled) this.ensureCloudNoiseTexture()
     this.postProcessPipeline = new WebGPUPostProcessPipeline(device)
     if (supportsTimestampQueries && device.features?.has?.('timestamp-query') === true) {
       this.timestampQuerySet = device.createQuerySet({ type: 'timestamp', count: 2, label: 'Sekai64 frame timestamps' })
@@ -773,6 +783,7 @@ export class WebGPURenderer implements RecoverableRenderer {
   setColorManagement(value: Partial<RendererColorManagement>): void { this.colorManagement = resolveColorManagement({ ...this.colorManagement, ...value }) }
   setEnvironmentLighting(value: Partial<RendererEnvironmentLighting>): void { this.environmentLighting = resolveEnvironmentLighting({ ...this.environmentLighting, ...value }) }
   setEnvironmentMap(environment: RendererEnvironmentMap | undefined): void { this.environmentMap=environment?{...environment,pixels:environment.pixels,mipLevels:environment.mipLevels?.map(level=>({...level,pixels:level.pixels})),diffuse:environment.diffuse?{...environment.diffuse,pixels:environment.diffuse.pixels}:undefined,brdfLut:environment.brdfLut?{...environment.brdfLut,pixels:environment.brdfLut.pixels}:undefined}:undefined;this.releaseEnvironmentTexture();if(environment&&this.device)this.environmentTexture=this.uploadEnvironmentMap(environment) }
+  setProceduralClouds(clouds: RendererProceduralCloudInput | undefined): void { this.proceduralClouds=resolveProceduralCloudState(clouds??{enabled:false});if(!this.proceduralClouds.enabled){this.releaseCloudNoiseTexture();return}if(this.device)this.ensureCloudNoiseTexture() }
   setShadowOptions(value: Partial<RendererShadowOptions>): void {
     const next = resolveShadowOptions({ ...this.shadowOptions, ...value })
     if (next.mapSize !== this.shadowOptions.mapSize || next.cascades !== this.shadowOptions.cascades) this.releaseShadowResources()
@@ -1093,6 +1104,44 @@ export class WebGPURenderer implements RecoverableRenderer {
     return state
   }
 
+  private ensureCloudNoiseTexture(): WebGPUTextureState | undefined {
+    const device = this.device
+    if (!device || !this.proceduralClouds.enabled) return undefined
+    if (this.cloudNoiseTexture && this.cloudNoiseSeed === this.proceduralClouds.seed) return this.cloudNoiseTexture
+    this.releaseCloudNoiseTexture()
+    const size = 128
+    const pixels = createProceduralCloudNoise(this.proceduralClouds.seed, size)
+    const texture = device.createTexture({
+      label: 'Sekai64 procedural cloud noise',
+      size: [size, size, 1],
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    })
+    device.queue.writeTexture({ texture }, pixels, { bytesPerRow: size * 4, rowsPerImage: size }, [size, size, 1])
+    const view = texture.createView()
+    const sampler = device.createSampler({ addressModeU: 'repeat', addressModeV: 'repeat', magFilter: 'linear', minFilter: 'linear' })
+    const state: WebGPUTextureState = { texture, view, sampler, version: 1, bytes: pixels.byteLength, width: size, height: size, format: 'rgba8unorm', mipLevelCount: 1, lastUsedFrame: this.frameIndex }
+    this.cloudNoiseTexture = state
+    this.cloudNoiseSeed = this.proceduralClouds.seed
+    this.environmentBackgroundBindGroup = undefined
+    this.environmentBackgroundBoundCloudTexture = undefined
+    this.stats.textureMemory += state.bytes
+    this.stats.textureUploads += 1
+    this.stats.gpuResourceCreations += 2
+    this.stats.gpuResourceCreationsThisFrame += 2
+    return state
+  }
+
+  private releaseCloudNoiseTexture(): void {
+    if (!this.cloudNoiseTexture) { this.cloudNoiseSeed = Number.NaN; return }
+    this.cloudNoiseTexture.texture.destroy()
+    this.stats.textureMemory = Math.max(0, this.stats.textureMemory - this.cloudNoiseTexture.bytes)
+    this.cloudNoiseTexture = undefined
+    this.cloudNoiseSeed = Number.NaN
+    this.environmentBackgroundBindGroup = undefined
+    this.environmentBackgroundBoundCloudTexture = undefined
+  }
+
   private drawEnvironmentBackground(pass: GPURenderPassEncoder, camera: Camera): void {
     const environment = this.environmentMap
     const texture = this.environmentTexture
@@ -1103,8 +1152,10 @@ export class WebGPURenderer implements RecoverableRenderer {
         { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+        { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d' } },
       ] })
-      this.environmentBackgroundUniformBuffer = device.createBuffer({ label: 'Sekai64 environment background uniforms', size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+      this.environmentBackgroundUniformBuffer = device.createBuffer({ label: 'Sekai64 environment background uniforms', size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
       this.stats.gpuResourceCreations += 2; this.stats.gpuResourceCreationsThisFrame += 2
     }
     if (!this.environmentBackgroundPipeline || this.environmentBackgroundPipelineSampleCount !== this.sampleCount) {
@@ -1114,13 +1165,18 @@ export class WebGPURenderer implements RecoverableRenderer {
       this.environmentBackgroundPipelineSampleCount = this.sampleCount
       this.stats.shaderCompilations += 1; this.stats.gpuResourceCreations += 3; this.stats.gpuResourceCreationsThisFrame += 3
     }
-    if (!this.environmentBackgroundBindGroup || this.environmentBackgroundBoundTexture !== texture.texture) {
+    const cloudNoise = this.proceduralClouds.enabled ? this.ensureCloudNoiseTexture() : undefined
+    const cloudTextureState = cloudNoise ?? this.whiteTexture as WebGPUTextureState
+    if (!this.environmentBackgroundBindGroup || this.environmentBackgroundBoundTexture !== texture.texture || this.environmentBackgroundBoundCloudTexture !== cloudTextureState.texture) {
       this.environmentBackgroundBindGroup = device.createBindGroup({ label: 'Sekai64 environment background bind group', layout: this.environmentBackgroundBindGroupLayout, entries: [
         { binding: 0, resource: { buffer: this.environmentBackgroundUniformBuffer as GPUBuffer } },
         { binding: 1, resource: texture.sampler },
         { binding: 2, resource: texture.view },
+        { binding: 3, resource: cloudTextureState.sampler },
+        { binding: 4, resource: cloudTextureState.view },
       ] })
       this.environmentBackgroundBoundTexture = texture.texture
+      this.environmentBackgroundBoundCloudTexture = cloudTextureState.texture
       this.stats.bindGroupChanges += 1; this.stats.gpuResourceCreations += 1; this.stats.gpuResourceCreationsThisFrame += 1
     }
     this.environmentBackgroundInverseViewProjection.copy(camera.viewProjectionMatrix).invert()
@@ -1131,6 +1187,10 @@ export class WebGPURenderer implements RecoverableRenderer {
     values.set([environment.backgroundIntensity ?? 1, environment.rotation ?? 0, environment.format === 'rgba16f-linear' ? 1 : 0, 0], 20)
     const toneMode = this.colorManagement.toneMapping === 'none' ? 0 : this.colorManagement.toneMapping === 'reinhard' ? 1 : this.colorManagement.toneMapping === 'neutral' ? 3 : 2
     values.set([this.colorManagement.exposure, toneMode, this.colorManagement.outputColorSpace === 'srgb' ? 1 : 0, 0], 24)
+    const clouds = this.proceduralClouds
+    values.set([clouds.enabled ? 1 : 0, clouds.coverage, clouds.density, clouds.scale], 28)
+    values.set([clouds.offset[0], clouds.offset[1], clouds.evolution, 0], 32)
+    values.set([clouds.sunDirection[0], clouds.sunDirection[1], clouds.sunDirection[2], clouds.sunIntensity], 36)
     device.queue.writeBuffer(this.environmentBackgroundUniformBuffer as GPUBuffer, 0, values)
     pass.setPipeline(this.environmentBackgroundPipeline)
     pass.setBindGroup(0, this.environmentBackgroundBindGroup)
@@ -1255,7 +1315,8 @@ export class WebGPURenderer implements RecoverableRenderer {
     this.timestampQuerySet=undefined;this.timestampResolveBuffer=undefined;this.timestampReadBuffer=undefined;this.timestampReadPending=false
     this.releaseShadowResources()
     this.releaseEnvironmentTexture()
-    this.environmentBackgroundUniformBuffer?.destroy(); this.environmentBackgroundUniformBuffer=undefined; this.environmentBackgroundBindGroup=undefined; this.environmentBackgroundBindGroupLayout=undefined; this.environmentBackgroundPipeline=undefined; this.environmentBackgroundPipelineSampleCount=0; this.environmentBackgroundBoundTexture=undefined
+    this.releaseCloudNoiseTexture()
+    this.environmentBackgroundUniformBuffer?.destroy(); this.environmentBackgroundUniformBuffer=undefined; this.environmentBackgroundBindGroup=undefined; this.environmentBackgroundBindGroupLayout=undefined; this.environmentBackgroundPipeline=undefined; this.environmentBackgroundPipelineSampleCount=0; this.environmentBackgroundBoundTexture=undefined; this.environmentBackgroundBoundCloudTexture=undefined
     for (const field of this.pointFields.values()) { field.positionBuffer.destroy(); field.colorBuffer.destroy(); field.appearanceBuffer.destroy(); field.uniformBuffer.destroy() }
     this.pointFields.clear(); this.pointFieldBindGroupLayout=undefined; this.pointFieldPipeline=undefined; this.pointFieldPipelineSampleCount=0
     for (const geometry of this.geometries.values()) { geometry.positionBuffer.destroy(); geometry.normalBuffer.destroy(); geometry.uvBuffer.destroy(); geometry.uv1Buffer.destroy(); geometry.colorBuffer.destroy(); geometry.tangentBuffer.destroy(); geometry.indexBuffer?.destroy() }
@@ -1591,7 +1652,7 @@ export class WebGPURenderer implements RecoverableRenderer {
   private releaseEnvironmentTexture(): void {
     for(const state of [this.environmentTexture,this.environmentDiffuseTexture,this.environmentBrdfTexture]){if(!state)continue;state.texture.destroy();this.stats.textureMemory=Math.max(0,this.stats.textureMemory-state.bytes)}
     this.environmentTexture=undefined;this.environmentDiffuseTexture=undefined;this.environmentBrdfTexture=undefined
-    this.environmentBackgroundBindGroup=undefined;this.environmentBackgroundBoundTexture=undefined
+    this.environmentBackgroundBindGroup=undefined;this.environmentBackgroundBoundTexture=undefined;this.environmentBackgroundBoundCloudTexture=undefined
     for(const uniforms of this.uniforms.values())for(const uniform of uniforms.values())uniform.buffer.destroy();this.uniforms.clear()
   }
 

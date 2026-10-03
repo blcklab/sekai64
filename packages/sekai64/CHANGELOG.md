@@ -1,3 +1,12 @@
+## 0.8.0-rc.48 — dynamic unique procedural clouds
+
+- Added a lightweight renderer-owned procedural-cloud overlay for environment backgrounds with runtime `coverage`, `density`, `scale`, `seed`, `offset`, and `evolution` state.
+- Cloud motion is GPU-driven: ordinary offset/evolution updates change uniforms only; the small seeded noise texture is regenerated only when the cloud seed changes.
+- Preserved the established large/medium/small cloud structure, erosion, warm sun-facing light, cool shadowing, horizon fade, and silver-lining style without introducing a CloudSystem, CloudManager, cloud entities, or a new package.
+- WebGL2 and WebGPU share the same procedural-cloud state and seeded-noise contract.
+- Existing `createProceduralSky()` cloud baking remains supported as the compatibility/static path.
+- Added focused final-freeze tests for deterministic unique seeds, bounded runtime state, WebGL2/WebGPU parity, uniform-only motion updates, and cheap seeded-noise generation.
+
 ## 0.8.0-rc.47 — runtime-mutable point fields
 
 - Add `PointField.setPoints()` for provider-driven runtime updates without replacing the scene node.

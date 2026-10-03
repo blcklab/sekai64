@@ -3,7 +3,7 @@ import type { Geometry } from '@sekai64-internal/geometry'
 import { collectSceneLights, type SceneLightSummary } from '@sekai64-internal/lighting'
 import { BasicMaterial, DepthMaterial, NormalMaterial, ShaderMaterial, StandardMaterial, Texture, TextureMaterial, type Material, type UniformValue } from '@sekai64-internal/materials'
 import { Box3, Color, Frustum, Matrix4, Vector3, type ColorInput } from '@sekai64-internal/math'
-import { ClusteredLightGrid, GeometryResidencyManager, RenderQueueBuilder, createDirectionalShadowCascades, createRendererAdvancedCapabilities, createRendererFeatures, createRendererStats, HierarchicalDepthCuller, resolveAtmosphere, resolveColorGrading, resolveColorManagement, resolveEnvironmentLighting, resolveImageQuality, resolveOptimization, resolvePostProcessing, resolveShadowOptions, srgbToLinear, TextureResidencyManager, type RecoverableRenderer, type RendererAtmosphere, type RendererCapabilities, type RendererColorGrading, type RendererColorManagement, type RendererDiagnosticSink, type RendererEnvironmentLighting, type RendererEnvironmentMap, type RendererImageQuality, type RendererOptimizationOptions, type RendererOptions, type RendererPostProcessing, type RendererRecoveryOptions, type RendererShadowOptions, type RendererStats, type RenderSurface, type RenderItem, type ClusteredPointLight } from '@sekai64-internal/renderer'
+import { ClusteredLightGrid, GeometryResidencyManager, RenderQueueBuilder, createDirectionalShadowCascades, createProceduralCloudNoise, createRendererAdvancedCapabilities, createRendererFeatures, createRendererStats, HierarchicalDepthCuller, resolveAtmosphere, resolveColorGrading, resolveColorManagement, resolveEnvironmentLighting, resolveImageQuality, resolveOptimization, resolvePostProcessing, resolveProceduralCloudState, resolveShadowOptions, srgbToLinear, TextureResidencyManager, type RecoverableRenderer, type RendererAtmosphere, type RendererCapabilities, type RendererColorGrading, type RendererColorManagement, type RendererDiagnosticSink, type RendererEnvironmentLighting, type RendererEnvironmentMap, type RendererImageQuality, type RendererOptimizationOptions, type RendererOptions, type RendererPostProcessing, type RendererProceduralCloudInput, type RendererProceduralCloudState, type RendererRecoveryOptions, type RendererShadowOptions, type RendererStats, type RenderSurface, type RenderItem, type ClusteredPointLight } from '@sekai64-internal/renderer'
 import { InstancedMesh, PointField, type Mesh, type Scene } from '@sekai64-internal/scene'
 import { WebGLPostProcessPipeline } from './WebGLPostProcessPipeline.js'
 
@@ -161,7 +161,7 @@ interface ShaderUniforms {
   custom: WebGLUniformLocation | null
 }
 interface ShaderProgramState { program: WebGLProgram; uniforms: ShaderUniforms }
-interface EnvironmentBackgroundProgramState { program: WebGLProgram; inverseViewProjection: WebGLUniformLocation | null; cameraPosition: WebGLUniformLocation | null; environmentMap: WebGLUniformLocation | null; params: WebGLUniformLocation | null; outputParams: WebGLUniformLocation | null }
+interface EnvironmentBackgroundProgramState { program: WebGLProgram; inverseViewProjection: WebGLUniformLocation | null; cameraPosition: WebGLUniformLocation | null; environmentMap: WebGLUniformLocation | null; cloudNoiseMap: WebGLUniformLocation | null; params: WebGLUniformLocation | null; outputParams: WebGLUniformLocation | null; cloudParams: WebGLUniformLocation | null; cloudMotion: WebGLUniformLocation | null; cloudSun: WebGLUniformLocation | null }
 interface PointFieldProgramState {
   program: WebGLProgram
   model: WebGLUniformLocation | null
@@ -263,14 +263,71 @@ in vec2 v_ndc;
 uniform mat4 u_inverseViewProjection;
 uniform vec3 u_cameraPosition;
 uniform sampler2D u_environmentMap;
+uniform sampler2D u_cloudNoiseMap;
 uniform vec4 u_params;
 uniform vec4 u_outputParams;
+uniform vec4 u_cloudParams;
+uniform vec4 u_cloudMotion;
+uniform vec4 u_cloudSun;
 out vec4 outColor;
 float linearChannelToSrgb(float value){return value<=0.0031308?12.92*value:1.055*pow(max(value,0.0),1.0/2.4)-0.055;}
 vec3 linearToSrgb(vec3 value){return vec3(linearChannelToSrgb(value.r),linearChannelToSrgb(value.g),linearChannelToSrgb(value.b));}
 vec3 toneMap(vec3 color,float mode){color=max(color,vec3(0.0));if(mode<0.5)return color;if(mode<1.5)return color/(vec3(1.0)+color);if(mode>2.5)return color/(vec3(1.0)+max(color,vec3(0.0))*0.6);return clamp((color*(2.51*color+vec3(0.03)))/(color*(2.43*color+vec3(0.59))+vec3(0.14)),0.0,1.0);}
 vec2 environmentUv(vec3 direction){vec3 d=normalize(direction);float phi=atan(d.z,d.x)+u_params.y;return vec2(fract(phi/(2.0*PI)+0.5),acos(clamp(d.y,-1.0,1.0))/PI);}
-void main(){vec4 world=u_inverseViewProjection*vec4(v_ndc,1.0,1.0);vec3 direction=normalize(world.xyz/max(abs(world.w),0.000001)-u_cameraPosition);vec3 color=textureLod(u_environmentMap,environmentUv(direction),0.0).rgb*max(u_params.x,0.0);if(u_params.z>0.5)color=toneMap(color*u_outputParams.x,u_outputParams.y);if(u_outputParams.z>0.5)color=linearToSrgb(color);outColor=vec4(clamp(color,0.0,1.0),1.0);}`
+float smoothNoise(vec2 uv,int channel){vec4 n=texture(u_cloudNoiseMap,fract(uv));return channel==0?n.r:(channel==1?n.g:(channel==2?n.b:n.a));}
+float cloudField(vec2 base,float evolution){
+  float warp=smoothNoise(base*0.18+vec2(evolution*0.0027,-evolution*0.0019),3);
+  vec2 w=vec2(warp-0.5)*0.22;
+  float large=smoothNoise(base*0.36+w+vec2(evolution*0.00073,evolution*0.00031),0);
+  float medium=smoothNoise(base*0.92+w*1.7+vec2(-evolution*0.00117,evolution*0.00089),1);
+  float small=smoothNoise(base*2.35+w*2.6+vec2(evolution*0.00191,-evolution*0.00143),2);
+  float erosion=abs(small*2.0-1.0);
+  return clamp(large*0.52+medium*0.36+small*0.18-erosion*0.06,0.0,1.0);
+}
+vec4 proceduralCloud(vec3 direction){
+  if(u_cloudParams.x<0.5||u_cloudParams.y<=0.0||direction.y<=0.0)return vec4(0.0);
+  float vertical=clamp(direction.y,0.0,1.0);
+  float perspective=0.72+0.38/max(0.22,vertical+0.18);
+  float c=cos(u_params.y),s=sin(u_params.y);
+  vec2 xz=vec2(c*direction.x-s*direction.z,s*direction.x+c*direction.z);
+  vec2 base=xz*u_cloudParams.w*perspective+u_cloudMotion.xy;
+  float field=cloudField(base,u_cloudMotion.z);
+  float threshold=mix(0.79,0.37,u_cloudParams.y);
+  float body=smoothstep(threshold-0.045,threshold+0.12,field);
+  float horizonFade=smoothstep(0.015,0.14,vertical);
+  float amount=clamp(body*u_cloudParams.z*horizonFade,0.0,1.0);
+  if(amount<=0.0001)return vec4(0.0);
+  float eps=0.045;
+  float gx=cloudField(base+vec2(eps,0.0),u_cloudMotion.z)-cloudField(base-vec2(eps,0.0),u_cloudMotion.z);
+  float gz=cloudField(base+vec2(0.0,eps),u_cloudMotion.z)-cloudField(base-vec2(0.0,eps),u_cloudMotion.z);
+  vec3 pseudoNormal=normalize(vec3(-gx*4.6,1.0,-gz*4.6));
+  vec3 sunDirection=normalize(u_cloudSun.xyz);
+  float diffuse=clamp(dot(pseudoNormal,sunDirection),0.0,1.0);
+  float sunFacing=clamp(dot(direction,sunDirection),0.0,1.0);
+  float interior=smoothstep(threshold+0.035,threshold+0.2,field);
+  vec3 coolShadow=vec3(0.64,0.72,0.92);
+  vec3 warmLight=vec3(1.34,1.22,1.08);
+  vec3 ambientCloud=vec3(0.9,0.96,1.08);
+  float sunStrength=clamp(u_cloudSun.w/8.0,0.0,1.0);
+  float lightMix=0.1+diffuse*0.9*sunStrength;
+  vec3 lit=mix(coolShadow,warmLight,lightMix);
+  vec3 cloudColor=mix(ambientCloud,lit,0.82);
+  float silverLining=(1.0-interior)*pow(sunFacing,5.0)*0.26*sunStrength;
+  float baseShade=1.0-interior*(0.13+(1.0-vertical)*0.11);
+  cloudColor*=baseShade;
+  cloudColor+=vec3(silverLining,silverLining*0.92,silverLining*0.72);
+  return vec4(cloudColor,amount);
+}
+void main(){
+  vec4 world=u_inverseViewProjection*vec4(v_ndc,1.0,1.0);
+  vec3 direction=normalize(world.xyz/max(abs(world.w),0.000001)-u_cameraPosition);
+  vec3 color=textureLod(u_environmentMap,environmentUv(direction),0.0).rgb*max(u_params.x,0.0);
+  vec4 cloud=proceduralCloud(direction);
+  color=mix(color,cloud.rgb,cloud.a);
+  if(u_params.z>0.5)color=toneMap(color*u_outputParams.x,u_outputParams.y);
+  if(u_outputParams.z>0.5)color=linearToSrgb(color);
+  outColor=vec4(clamp(color,0.0,1.0),1.0);
+}`
 
 const vertexHeader = `#version 300 es
 layout(location=0) in vec3 a_position;
@@ -938,6 +995,9 @@ export class WebGL2Renderer implements RecoverableRenderer {
   private environmentDiffuseTexture?: WebGLTextureState
   private environmentBrdfTexture?: WebGLTextureState
   private environmentBackgroundProgram?: EnvironmentBackgroundProgramState
+  private proceduralClouds: RendererProceduralCloudState = resolveProceduralCloudState()
+  private cloudNoiseTexture?: WebGLTextureState
+  private cloudNoiseSeed = Number.NaN
   private pointFieldProgram?: PointFieldProgramState
   private readonly pointFields = new Map<PointField, WebGLPointFieldState>()
   private readonly environmentBackgroundInverseViewProjection = new Matrix4()
@@ -996,6 +1056,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.postProcessPipeline = new WebGLPostProcessPipeline(gl)
     this.whiteTexture = createWhiteTexture(gl)
     if(this.environmentMap)this.environmentTexture=this.uploadEnvironmentMap(this.environmentMap)
+    if(this.proceduralClouds.enabled)this.ensureCloudNoiseTexture()
     gl.enable(gl.DEPTH_TEST)
     gl.depthFunc(gl.LEQUAL)
     gl.enable(gl.CULL_FACE)
@@ -1037,6 +1098,11 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.environmentMap = environment ? { ...environment, pixels: environment.pixels, mipLevels: environment.mipLevels?.map(level=>({ ...level, pixels: level.pixels })), diffuse: environment.diffuse ? { ...environment.diffuse, pixels: environment.diffuse.pixels } : undefined, brdfLut: environment.brdfLut ? { ...environment.brdfLut, pixels: environment.brdfLut.pixels } : undefined } : undefined
     this.releaseEnvironmentTexture()
     if (environment && this.gl) this.environmentTexture = this.uploadEnvironmentMap(environment)
+  }
+  setProceduralClouds(clouds: RendererProceduralCloudInput | undefined): void {
+    this.proceduralClouds = resolveProceduralCloudState(clouds ?? { enabled: false })
+    if (!this.proceduralClouds.enabled) { this.releaseCloudNoiseTexture(); return }
+    if (this.gl) this.ensureCloudNoiseTexture()
   }
   setShadowOptions(options: Partial<RendererShadowOptions>): void {
     const previousSize = this.shadowOptions.mapSize
@@ -1260,6 +1326,40 @@ export class WebGL2Renderer implements RecoverableRenderer {
     return state
   }
 
+  private ensureCloudNoiseTexture(): WebGLTextureState | undefined {
+    const gl = this.gl
+    if (!gl || !this.proceduralClouds.enabled) return undefined
+    if (this.cloudNoiseTexture && this.cloudNoiseSeed === this.proceduralClouds.seed) return this.cloudNoiseTexture
+    this.releaseCloudNoiseTexture()
+    const size = 128
+    const pixels = createProceduralCloudNoise(this.proceduralClouds.seed, size)
+    const texture = gl.createTexture()
+    if (!texture) throw new Error('WebGL2 could not allocate procedural cloud noise texture.')
+    gl.bindTexture(gl.TEXTURE_2D, texture)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+    const state: WebGLTextureState = { texture, version: 1, bytes: pixels.byteLength, width: size, height: size, colorSpace: 'linear', lastUsedFrame: this.frameIndex }
+    this.cloudNoiseTexture = state
+    this.cloudNoiseSeed = this.proceduralClouds.seed
+    this.stats.textureMemory += state.bytes
+    this.stats.textureUploads += 1
+    this.stats.gpuResourceCreations += 1
+    this.stats.gpuResourceCreationsThisFrame += 1
+    return state
+  }
+
+  private releaseCloudNoiseTexture(): void {
+    if (!this.cloudNoiseTexture) { this.cloudNoiseSeed = Number.NaN; return }
+    this.gl?.deleteTexture(this.cloudNoiseTexture.texture)
+    this.stats.textureMemory = Math.max(0, this.stats.textureMemory - this.cloudNoiseTexture.bytes)
+    this.cloudNoiseTexture = undefined
+    this.cloudNoiseSeed = Number.NaN
+  }
+
   private drawEnvironmentBackground(camera: Camera): void {
     const environment = this.environmentMap
     const texture = this.environmentTexture
@@ -1274,9 +1374,17 @@ export class WebGL2Renderer implements RecoverableRenderer {
     gl.uniform3f(program.cameraPosition, cameraElements[12] ?? 0, cameraElements[13] ?? 0, cameraElements[14] ?? 0)
     gl.uniform4f(program.params, environment.backgroundIntensity ?? 1, environment.rotation ?? 0, environment.format === 'rgba16f-linear' ? 1 : 0, 0)
     gl.uniform4f(program.outputParams, this.colorManagement.exposure, toneMode, this.colorManagement.outputColorSpace === 'srgb' ? 1 : 0, 0)
+    const clouds = this.proceduralClouds
+    gl.uniform4f(program.cloudParams, clouds.enabled ? 1 : 0, clouds.coverage, clouds.density, clouds.scale)
+    gl.uniform4f(program.cloudMotion, clouds.offset[0], clouds.offset[1], clouds.evolution, 0)
+    gl.uniform4f(program.cloudSun, clouds.sunDirection[0], clouds.sunDirection[1], clouds.sunDirection[2], clouds.sunIntensity)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, texture.texture)
     gl.uniform1i(program.environmentMap, 0)
+    const cloudNoise = clouds.enabled ? this.ensureCloudNoiseTexture() : undefined
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, (cloudNoise ?? this.whiteTexture as WebGLTextureState).texture)
+    gl.uniform1i(program.cloudNoiseMap, 1)
     gl.disable(gl.DEPTH_TEST); gl.depthMask(false); gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND)
     gl.bindVertexArray(null)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
@@ -1431,6 +1539,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
       if (this.environmentTexture) gl.deleteTexture(this.environmentTexture.texture)
       if (this.environmentDiffuseTexture) gl.deleteTexture(this.environmentDiffuseTexture.texture)
       if (this.environmentBrdfTexture) gl.deleteTexture(this.environmentBrdfTexture.texture)
+      if (this.cloudNoiseTexture) gl.deleteTexture(this.cloudNoiseTexture.texture)
       this.releaseShadowResources()
     this.postProcessPipeline?.dispose()
     this.postProcessPipeline=undefined
@@ -1461,6 +1570,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.environmentTexture = undefined
     this.environmentDiffuseTexture = undefined
     this.environmentBrdfTexture = undefined
+    this.cloudNoiseTexture = undefined
     this.gl = undefined
     this.regular = undefined
     this.instanced = undefined
@@ -2098,6 +2208,8 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.instances.clear()
     this.pointFields.clear()
     this.textures.clear()
+    this.cloudNoiseTexture = undefined
+    this.cloudNoiseSeed = Number.NaN
     this.stats.geometryMemory = 0
     this.stats.textureMemory = 0
     this.shadowFramebuffer = undefined
@@ -2110,6 +2222,7 @@ export class WebGL2Renderer implements RecoverableRenderer {
     this.postProcessPipeline = new WebGLPostProcessPipeline(gl)
     this.whiteTexture = createWhiteTexture(gl)
     if(this.environmentMap)this.environmentTexture=this.uploadEnvironmentMap(this.environmentMap)
+    if(this.proceduralClouds.enabled)this.ensureCloudNoiseTexture()
     gl.enable(gl.DEPTH_TEST)
     gl.depthFunc(gl.LEQUAL)
     gl.enable(gl.CULL_FACE)
@@ -2166,8 +2279,12 @@ function createEnvironmentBackgroundProgramState(gl: WebGL2RenderingContext): En
     inverseViewProjection: gl.getUniformLocation(program, 'u_inverseViewProjection'),
     cameraPosition: gl.getUniformLocation(program, 'u_cameraPosition'),
     environmentMap: gl.getUniformLocation(program, 'u_environmentMap'),
+    cloudNoiseMap: gl.getUniformLocation(program, 'u_cloudNoiseMap'),
     params: gl.getUniformLocation(program, 'u_params'),
     outputParams: gl.getUniformLocation(program, 'u_outputParams'),
+    cloudParams: gl.getUniformLocation(program, 'u_cloudParams'),
+    cloudMotion: gl.getUniformLocation(program, 'u_cloudMotion'),
+    cloudSun: gl.getUniformLocation(program, 'u_cloudSun'),
   }
 }
 

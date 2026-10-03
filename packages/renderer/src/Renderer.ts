@@ -1,6 +1,7 @@
 import type { Camera } from '@sekai64-internal/cameras'
 import type { ColorInput } from '@sekai64-internal/math'
 import type { Scene } from '@sekai64-internal/scene'
+import type { RendererProceduralCloudInput } from './ProceduralClouds.js'
 import type { RendererAtmosphere, RendererColorGrading, RendererColorManagement, RendererEnvironmentLighting, RendererImageQuality, RendererOptimizationOptions, RendererPostProcessing, RendererShadowOptions } from './VisualPipeline.js'
 
 export type RendererBackend = 'webgpu' | 'webgl2'
@@ -234,6 +235,8 @@ export interface Renderer {
   setColorManagement(options: Partial<RendererColorManagement>): void
   setEnvironmentLighting(options: Partial<RendererEnvironmentLighting>): void
   setEnvironmentMap(environment: RendererEnvironmentMap | undefined): void
+  /** Optional dynamic procedural-cloud overlay for environment backgrounds. */
+  setProceduralClouds?(clouds: RendererProceduralCloudInput | undefined): void
   setShadowOptions(options: Partial<RendererShadowOptions>): void
   setImageQuality(options: Partial<RendererImageQuality>): void
   setAtmosphere(options: Partial<RendererAtmosphere>): void

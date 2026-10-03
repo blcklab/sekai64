@@ -6,3 +6,5 @@ export * from './AdvancedRendering.js'
 export * from './ColorLut.js'
 export * from './ShadowQuality.js'
 export * from './PerformanceProfiler.js'
+
+export * from './ProceduralClouds.js'
