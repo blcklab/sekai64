@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/scene",
-  "version": "0.8.0-rc.49",
+  "version": "0.8.0-rc.50",
   "description": "Private Sekai64 workspace module: scene. Bundled into @blcklab/sekai64.",
   "type": "module",
   "sideEffects": false,
@@ -24,10 +24,10 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@sekai64-internal/core": "0.8.0-rc.49",
-    "@sekai64-internal/geometry": "0.8.0-rc.49",
-    "@sekai64-internal/materials": "0.8.0-rc.49",
-    "@sekai64-internal/math": "0.8.0-rc.49"
+    "@sekai64-internal/core": "0.8.0-rc.50",
+    "@sekai64-internal/geometry": "0.8.0-rc.50",
+    "@sekai64-internal/materials": "0.8.0-rc.50",
+    "@sekai64-internal/math": "0.8.0-rc.50"
   },
   "license": "MIT",
   "author": "blcklab",

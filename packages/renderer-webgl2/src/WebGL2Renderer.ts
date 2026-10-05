@@ -274,6 +274,13 @@ float linearChannelToSrgb(float value){return value<=0.0031308?12.92*value:1.055
 vec3 linearToSrgb(vec3 value){return vec3(linearChannelToSrgb(value.r),linearChannelToSrgb(value.g),linearChannelToSrgb(value.b));}
 vec3 toneMap(vec3 color,float mode){color=max(color,vec3(0.0));if(mode<0.5)return color;if(mode<1.5)return color/(vec3(1.0)+color);if(mode>2.5)return color/(vec3(1.0)+max(color,vec3(0.0))*0.6);return clamp((color*(2.51*color+vec3(0.03)))/(color*(2.43*color+vec3(0.59))+vec3(0.14)),0.0,1.0);}
 vec2 environmentUv(vec3 direction){vec3 d=normalize(direction);float phi=atan(d.z,d.x)+u_params.y;return vec2(fract(phi/(2.0*PI)+0.5),acos(clamp(d.y,-1.0,1.0))/PI);}
+vec2 cloudDomeCoordinate(vec3 direction){
+  vec3 d=normalize(direction);
+  float horizontal=length(d.xz);
+  float theta=acos(clamp(d.y,0.0,1.0));
+  if(horizontal<=0.000001||theta<=0.000001)return vec2(0.0);
+  return (d.xz/horizontal)*(theta/(0.5*PI))*0.45;
+}
 float smoothNoise(vec2 uv,int channel){vec4 n=texture(u_cloudNoiseMap,fract(uv));return channel==0?n.r:(channel==1?n.g:(channel==2?n.b:n.a));}
 float cloudMacroField(vec2 base,float evolution){
   float warp=smoothNoise(base*0.16+vec2(evolution*0.0019,-evolution*0.0013),3);
@@ -290,8 +297,7 @@ float cloudDetailField(vec2 base,float evolution){
 vec4 proceduralCloud(vec3 direction){
   if(u_cloudParams.x<0.5||u_cloudParams.y<=0.0||direction.y<=0.0)return vec4(0.0);
   float vertical=clamp(direction.y,0.0,1.0);
-  vec2 skyUv=environmentUv(direction);
-  vec2 base=vec2(skyUv.x*1.35,skyUv.y*2.0)*u_cloudParams.w+u_cloudMotion.xy;
+  vec2 base=cloudDomeCoordinate(direction)*u_cloudParams.w+u_cloudMotion.xy;
   float macro=cloudMacroField(base,u_cloudMotion.z);
   float detail=cloudDetailField(base,u_cloudMotion.z);
   float detailStrength=smoothstep(0.08,0.34,vertical);

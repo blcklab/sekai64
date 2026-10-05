@@ -1,3 +1,11 @@
+## 0.8.0-rc.50 — cloud dome seam/pole hotfix
+
+- Fixed the rc.49 dynamic-cloud longitude seam and zenith pinwheel/wedge artifact seen during real-browser camera rotation.
+- Replaced cloud-only equirectangular longitude/latitude coordinates with a continuous upper-hemisphere azimuthal dome coordinate. The environment map itself keeps its existing equirectangular sampling.
+- Cloud coordinates now converge to one value at the zenith and remain continuous across the former longitude wrap, while preserving the rc.49 seeded macro/detail noise hierarchy, runtime drift/evolution, coverage/density, lighting, and WebGL2/WebGPU parity.
+- The sample world is not the owner of the defect; denser cloud settings only made the renderer singularity easier to see.
+- No renderer API, Anyo contract, World schema, provider boundary, or runtime dependency changed.
+
 ## 0.8.0-rc.49 — dynamic cloud visual hotfix
 
 - Fixed the rc.48 dynamic cloud overlay rendering raw high-frequency contour/etched noise instead of broad cloud masses.

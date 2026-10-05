@@ -19,9 +19,8 @@ test('dynamic clouds preserve macro masses and use fine noise only as bounded de
   }
 })
 
-test('dynamic clouds use spherical environment coordinates instead of horizon-amplified perspective sampling', () => {
+test('dynamic clouds keep the rc49 bounded horizon/detail treatment', () => {
   for (const source of sources) {
-    assert.match(source, /environmentUv\(direction\)/)
     assert.match(source, /horizonFade/)
     assert.match(source, /detailStrength/)
     assert.doesNotMatch(source, /0\.72\+0\.38\/max\(0\.22/)
