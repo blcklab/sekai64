@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/renderer-webgpu",
-  "version": "0.8.0-rc.53",
+  "version": "0.8.0-rc.54",
   "description": "Private Sekai64 workspace module: renderer-webgpu. Bundled into @blcklab/sekai64.",
   "type": "module",
   "sideEffects": false,
@@ -24,13 +24,13 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@sekai64-internal/cameras": "0.8.0-rc.53",
-    "@sekai64-internal/geometry": "0.8.0-rc.53",
-    "@sekai64-internal/materials": "0.8.0-rc.53",
-    "@sekai64-internal/math": "0.8.0-rc.53",
-    "@sekai64-internal/renderer": "0.8.0-rc.53",
-    "@sekai64-internal/scene": "0.8.0-rc.53",
-    "@sekai64-internal/lighting": "0.8.0-rc.53"
+    "@sekai64-internal/cameras": "0.8.0-rc.54",
+    "@sekai64-internal/geometry": "0.8.0-rc.54",
+    "@sekai64-internal/materials": "0.8.0-rc.54",
+    "@sekai64-internal/math": "0.8.0-rc.54",
+    "@sekai64-internal/renderer": "0.8.0-rc.54",
+    "@sekai64-internal/scene": "0.8.0-rc.54",
+    "@sekai64-internal/lighting": "0.8.0-rc.54"
   },
   "license": "MIT",
   "author": "blcklab",

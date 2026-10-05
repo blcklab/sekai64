@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/geometry",
-  "version": "0.8.0-rc.53",
+  "version": "0.8.0-rc.54",
   "description": "Private Sekai64 workspace module: geometry. Bundled into @blcklab/sekai64.",
   "type": "module",
   "sideEffects": false,
@@ -24,8 +24,8 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@sekai64-internal/core": "0.8.0-rc.53",
-    "@sekai64-internal/math": "0.8.0-rc.53"
+    "@sekai64-internal/core": "0.8.0-rc.54",
+    "@sekai64-internal/math": "0.8.0-rc.54"
   },
   "license": "MIT",
   "author": "blcklab",

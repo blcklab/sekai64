@@ -1,3 +1,9 @@
+## 0.8.0-rc.54 — WebGPU procedural-cloud WGSL reserved-keyword hotfix
+
+- Fix WebGPU environment-background shader compilation by renaming the rc.53 local cloud variable `macro`, which is a reserved WGSL keyword, to `macroField`.
+- Preserve the rc.53 classic cloud visual-parity math, runtime cloud state, WebGL2 output, horizon behavior, and public API unchanged.
+- Add a source regression that rejects reserved `macro` as a WGSL local in the procedural-cloud shader.
+
 ## 0.8.0-rc.53 — classic cloud visual parity
 
 - Restore the rc.43 procedural-sky visual language as the default shape/projection reference for dynamic GPU clouds while preserving runtime seed, drift, evolution, appearance controls, horizon underlap, and WebGL2/WebGPU parity.
