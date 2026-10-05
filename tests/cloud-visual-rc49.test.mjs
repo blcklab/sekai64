@@ -12,16 +12,17 @@ test('dynamic clouds preserve macro masses and keep fine noise world-tunable and
   for (const source of sources) {
     assert.match(source, /cloudMacroField/)
     assert.match(source, /cloudDetailField/)
-    assert.match(source, /large\*0\.74\+medium\*0\.26/)
-    assert.match(source, /detail-0\.5/)
+    assert.match(source, /classicFbm/)
+    assert.match(source, /0\.18\*detailGain/)
+    assert.match(source, /0\.06\*detailGain/)
     assert.match(source, /cloudShape\.z|u_cloudShape\.z/)
-    assert.doesNotMatch(source, /abs\(small\*2\.0-1\.0\)/)
+    assert.match(source, /abs\(small\*2\.0-1\.0\)/)
   }
 })
 
 test('dynamic clouds retain horizon presence instead of disappearing behind a hard fade', () => {
   for (const source of sources) {
-    assert.match(source, /horizonBlend/)
+    assert.match(source, /classicHorizon/)
     assert.match(source, /horizonPresence/)
     assert.match(source, /horizonVisibility|cloudHorizon\.y|u_cloudHorizon\.y/)
     assert.doesNotMatch(source, /horizonFade=smoothstep\(0\.01,0\.11/)
@@ -31,12 +32,11 @@ test('dynamic clouds retain horizon presence instead of disappearing behind a ha
 test('cloud lighting stays macro-derived while shadow, highlight, and silver lining are authorable', () => {
   for (const source of sources) {
     assert.match(source, /cloudMacroField\(macroBase\+/)
-    assert.match(source, /gx\*1\.45/)
-    assert.match(source, /4\.0\*body\*\(1\.0-body\)/)
-    assert.match(source, /pow\(sunFacing,7\.0\)/)
+    assert.match(source, /gx\*4\.6/)
+    assert.match(source, /threshold\+0\.035/)
+    assert.match(source, /pow\(sunFacing,5\.0\)/)
     assert.match(source, /cloudLighting|u_cloudLighting/)
     assert.match(source, /cloudHorizon\.w|u_cloudHorizon\.w/)
-    assert.doesNotMatch(source, /gx\*4\.6/)
   }
 })
 

@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/lighting",
-  "version": "0.8.0-rc.52",
+  "version": "0.8.0-rc.53",
   "description": "Private Sekai64 workspace module: lighting. Bundled into @blcklab/sekai64.",
   "type": "module",
   "sideEffects": false,
@@ -24,8 +24,8 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@sekai64-internal/math": "0.8.0-rc.52",
-    "@sekai64-internal/scene": "0.8.0-rc.52"
+    "@sekai64-internal/math": "0.8.0-rc.53",
+    "@sekai64-internal/scene": "0.8.0-rc.53"
   },
   "license": "MIT",
   "author": "blcklab",

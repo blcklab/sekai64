@@ -1,3 +1,10 @@
+## 0.8.0-rc.53 — classic cloud visual parity
+
+- Restore the rc.43 procedural-sky visual language as the default shape/projection reference for dynamic GPU clouds while preserving runtime seed, drift, evolution, appearance controls, horizon underlap, and WebGL2/WebGPU parity.
+- Dynamic cloud coordinates again follow the continuous direction-xz perspective mapping used by the accepted rc.43 baked sky, removing the apparent near-camera enlargement introduced by the later dome-frequency mapping.
+- Rebuild the runtime field around rc.43-style large/medium/small fBm weighting, thresholding, erosion, pseudo-normal lighting, and warm/cool cloud response using the existing seeded GPU noise resource.
+- No CloudSystem, weather dependency, per-cloud entity model, or extra render pass is introduced.
+
 ## 0.8.0-rc.52 — horizon underlap / background-continuation freeze
 
 - Fix the remaining visible mathematical-horizon cutoff in dynamic clouds without changing scene depth or world-object rendering.
