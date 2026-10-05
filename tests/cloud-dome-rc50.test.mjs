@@ -21,7 +21,7 @@ test('rc50 dynamic clouds use a seam-free upper-dome coordinate instead of longi
   for (const source of [webgl, webgpu]) {
     assert.match(source, /cloudDomeCoordinate/)
     assert.doesNotMatch(source, /skyUv=environmentUv\(direction\)/)
-    assert.match(source, /cloudDomeCoordinate\(direction\).*cloudParams\.w|cloudDomeCoordinate\(direction\)\*u_cloudParams\.w/s)
+    assert.match(source, /cloudDomeCoordinate\(direction(?:,[^)]*)?\).*cloudParams\.w|cloudDomeCoordinate\(direction(?:,[^)]*)?\)\*u_cloudParams\.w/s)
   }
 })
 

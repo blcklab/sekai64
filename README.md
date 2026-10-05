@@ -83,10 +83,12 @@ See [Compatibility](docs/compatibility.md) and [Limitations](docs/limitations.md
 
 MIT
 
-## Procedural cloud authoring (rc.51 freeze)
+## Procedural cloud authoring (rc.52 freeze)
 
 Sekai64 exposes one generic dynamic-cloud renderer state. Cloud identity and art direction belong to the host/world, not to renderer-specific cloud systems. In addition to coverage, density, scale, seed, offset and evolution, worlds may author macro/detail scale, bounded detail breakup, edge softness, warp, horizon presence/softness, lighting response, cloud colors, and an independent detail-motion channel.
 
 The renderer keeps deterministic seeded noise and WebGL2/WebGPU parity. Hosts should keep a session seed stable, drive macro `offset`/`evolution` for large cloud motion, and optionally drive `detailOffset`/`detailEvolution` more slowly or along a slightly different direction for organic breakup. Horizon visibility is a style input rather than a hard renderer fade.
 
-The rc.51 contract is intended to be the cloud-feature freeze: future cloud looks should be created by changing authored world/runtime values rather than modifying Sekai64.
+The rc.52 contract closes the final projection-boundary gap: worlds may author `horizonExtension`, `horizonCompression`, and `horizonAtmosphericFade` so distant cloud banks can continue slightly beneath the mathematical horizon without exposing a horizontal cutoff. The continuation is still part of the background pass, so scene geometry renders normally in front and downward views fade the cloud underlap away.
+
+The rc.52 contract is intended to be the cloud-feature freeze: future cloud looks and horizon profiles should be created by changing authored world/runtime values rather than modifying Sekai64.

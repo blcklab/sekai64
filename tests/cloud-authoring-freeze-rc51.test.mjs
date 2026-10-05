@@ -8,7 +8,7 @@ const webgpu = await readFile(new URL('../packages/renderer-webgpu/src/WebGPURen
 
 const authoringFields = [
   'macroScale', 'detailScale', 'detailStrength', 'edgeSoftness', 'warpStrength',
-  'horizonVisibility', 'horizonSoftness', 'shadowStrength', 'highlightStrength',
+  'horizonVisibility', 'horizonSoftness', 'horizonExtension', 'horizonCompression', 'horizonAtmosphericFade', 'shadowStrength', 'highlightStrength',
   'silverLiningStrength', 'ambientColor', 'shadowColor', 'lightColor',
   'detailOffset', 'detailEvolution',
 ]

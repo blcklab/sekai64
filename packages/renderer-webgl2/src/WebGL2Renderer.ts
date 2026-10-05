@@ -281,12 +281,17 @@ float linearChannelToSrgb(float value){return value<=0.0031308?12.92*value:1.055
 vec3 linearToSrgb(vec3 value){return vec3(linearChannelToSrgb(value.r),linearChannelToSrgb(value.g),linearChannelToSrgb(value.b));}
 vec3 toneMap(vec3 color,float mode){color=max(color,vec3(0.0));if(mode<0.5)return color;if(mode<1.5)return color/(vec3(1.0)+color);if(mode>2.5)return color/(vec3(1.0)+max(color,vec3(0.0))*0.6);return clamp((color*(2.51*color+vec3(0.03)))/(color*(2.43*color+vec3(0.59))+vec3(0.14)),0.0,1.0);}
 vec2 environmentUv(vec3 direction){vec3 d=normalize(direction);float phi=atan(d.z,d.x)+u_params.y;return vec2(fract(phi/(2.0*PI)+0.5),acos(clamp(d.y,-1.0,1.0))/PI);}
-vec2 cloudDomeCoordinate(vec3 direction){
+vec2 cloudDomeCoordinate(vec3 direction,float horizonCompression){
   vec3 d=normalize(direction);
   float horizontal=length(d.xz);
-  float theta=acos(clamp(d.y,0.0,1.0));
+  float theta=acos(clamp(d.y,-1.0,1.0));
   if(horizontal<=0.000001||theta<=0.000001)return vec2(0.0);
-  return (d.xz/horizontal)*(theta/(0.5*PI))*0.45;
+  float radial=theta/(0.5*PI);
+  if(radial>1.0){
+    float underlapScale=mix(1.0,0.18,clamp(horizonCompression,0.0,1.0));
+    radial=1.0+(radial-1.0)*underlapScale;
+  }
+  return (d.xz/horizontal)*radial*0.45;
 }
 float smoothNoise(vec2 uv,int channel){vec4 n=texture(u_cloudNoiseMap,fract(uv));return channel==0?n.r:(channel==1?n.g:(channel==2?n.b:n.a));}
 float cloudMacroField(vec2 base,float evolution){
@@ -304,9 +309,12 @@ float cloudDetailField(vec2 base,float evolution){
   return clamp(small*0.78+fine*0.22,0.0,1.0);
 }
 vec4 proceduralCloud(vec3 direction){
-  if(u_cloudParams.x<0.5||u_cloudParams.y<=0.0||direction.y<=0.0)return vec4(0.0);
+  float horizonExtension=max(u_cloudLighting.z,0.0);
+  if(u_cloudParams.x<0.5||u_cloudParams.y<=0.0||direction.y<=-horizonExtension)return vec4(0.0);
   float vertical=clamp(direction.y,0.0,1.0);
-  vec2 domain=cloudDomeCoordinate(direction)*u_cloudParams.w;
+  float underlapDistance=horizonExtension>0.0001?clamp(-direction.y/horizonExtension,0.0,1.0):0.0;
+  float underlapFade=direction.y>=0.0?1.0:smoothstep(-horizonExtension,0.0,direction.y);
+  vec2 domain=cloudDomeCoordinate(direction,u_cloudLighting.w)*u_cloudParams.w;
   vec2 macroBase=domain+u_cloudMotion.xy;
   vec2 detailBase=domain+u_cloudDetailMotion.xy;
   float macro=cloudMacroField(macroBase,u_cloudMotion.z);
@@ -318,7 +326,9 @@ vec4 proceduralCloud(vec3 direction){
   float softness=max(u_cloudHorizon.x,0.01);
   float body=smoothstep(threshold-softness,threshold+softness,field);
   float horizonPresence=mix(u_cloudHorizon.y,1.0,horizonBlend);
-  float amount=clamp(body*min(u_cloudParams.z,1.5)*horizonPresence,0.0,1.0);
+  float underlapAtmosphere=clamp(u_cloudDetailMotion.w,0.0,1.0);
+  float underlapDensity=mix(1.0,0.72,underlapDistance*underlapAtmosphere);
+  float amount=clamp(body*min(u_cloudParams.z,1.5)*horizonPresence*underlapFade*underlapDensity,0.0,1.0);
   if(amount<=0.0001)return vec4(0.0);
   float eps=0.055/max(u_cloudShape.x,0.2);
   float gx=cloudMacroField(macroBase+vec2(eps,0.0),u_cloudMotion.z)-cloudMacroField(macroBase-vec2(eps,0.0),u_cloudMotion.z);
@@ -336,7 +346,7 @@ vec4 proceduralCloud(vec3 direction){
   cloudColor=mix(cloudColor,u_cloudShadowColor,clamp(shadowAmount,0.0,1.0));
   float silverLining=edge*pow(sunFacing,7.0)*u_cloudHorizon.w*sunStrength;
   cloudColor+=vec3(silverLining,silverLining*0.92,silverLining*0.76);
-  float distanceHaze=(1.0-horizonBlend)*0.42;
+  float distanceHaze=clamp((1.0-horizonBlend)*0.42+underlapDistance*underlapAtmosphere*0.5,0.0,0.92);
   cloudColor=mix(cloudColor,u_cloudAmbientColor,distanceHaze);
   return vec4(cloudColor,amount);
 }
@@ -1402,8 +1412,8 @@ export class WebGL2Renderer implements RecoverableRenderer {
     gl.uniform4f(program.cloudSun, clouds.sunDirection[0], clouds.sunDirection[1], clouds.sunDirection[2], clouds.sunIntensity)
     gl.uniform4f(program.cloudShape, clouds.macroScale, clouds.detailScale, clouds.detailStrength, clouds.warpStrength)
     gl.uniform4f(program.cloudHorizon, clouds.edgeSoftness, clouds.horizonVisibility, clouds.horizonSoftness, clouds.silverLiningStrength)
-    gl.uniform4f(program.cloudLighting, clouds.shadowStrength, clouds.highlightStrength, 0, 0)
-    gl.uniform4f(program.cloudDetailMotion, clouds.detailOffset[0], clouds.detailOffset[1], clouds.detailEvolution, 0)
+    gl.uniform4f(program.cloudLighting, clouds.shadowStrength, clouds.highlightStrength, clouds.horizonExtension, clouds.horizonCompression)
+    gl.uniform4f(program.cloudDetailMotion, clouds.detailOffset[0], clouds.detailOffset[1], clouds.detailEvolution, clouds.horizonAtmosphericFade)
     gl.uniform3f(program.cloudAmbientColor, clouds.ambientColor[0], clouds.ambientColor[1], clouds.ambientColor[2])
     gl.uniform3f(program.cloudShadowColor, clouds.shadowColor[0], clouds.shadowColor[1], clouds.shadowColor[2])
     gl.uniform3f(program.cloudLightColor, clouds.lightColor[0], clouds.lightColor[1], clouds.lightColor[2])

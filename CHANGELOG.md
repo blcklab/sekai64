@@ -1,3 +1,11 @@
+## 0.8.0-rc.52 — horizon underlap / background-continuation freeze
+
+- Fix the remaining visible mathematical-horizon cutoff in dynamic clouds without changing scene depth or world-object rendering.
+- Add renderer-neutral `horizonExtension`, `horizonCompression`, and `horizonAtmosphericFade` controls.
+- Continue the cloud dome domain smoothly a bounded distance below the horizon, then fade it out before downward-looking directions.
+- Keep cloud rendering in the environment-background pass, so terrain, buildings, water, characters, and every ordinary scene object continue to render in front.
+- Preserve rc.51 world-authored appearance/motion controls and WebGL2/WebGPU parity. Future horizon art direction is world data; renderer changes are only for reproducible correctness defects.
+
 ## 0.8.0-rc.51 — final world-authored cloud appearance freeze
 
 - Freezes the dynamic-cloud renderer contract around world-authored controls instead of renderer-specific look tweaks.

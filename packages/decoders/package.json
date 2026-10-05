@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/decoders",
-  "version": "0.8.0-rc.51",
+  "version": "0.8.0-rc.52",
   "description": "Private decoder adapter contracts assembled into the public Sekai64 package.",
   "type": "module",
   "sideEffects": false,

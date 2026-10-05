@@ -15,6 +15,12 @@ export interface RendererProceduralCloudState {
   warpStrength: number
   horizonVisibility: number
   horizonSoftness: number
+  /** Limited below-horizon background underlap in normalized view-direction Y units. */
+  horizonExtension: number
+  /** Compresses below-horizon cloud-domain travel so distant banks read farther away. */
+  horizonCompression: number
+  /** Additional haze/attenuation applied only to the horizon underlap. */
+  horizonAtmosphericFade: number
   shadowStrength: number
   highlightStrength: number
   silverLiningStrength: number
@@ -52,6 +58,9 @@ export function resolveProceduralCloudState(input: RendererProceduralCloudInput 
     warpStrength: clamp(finite(input.warpStrength, 0.16), 0, 0.6),
     horizonVisibility: clamp(finite(input.horizonVisibility, 0.62), 0, 1),
     horizonSoftness: clamp(finite(input.horizonSoftness, 0.18), 0.01, 0.6),
+    horizonExtension: clamp(finite(input.horizonExtension, 0.06), 0, 0.35),
+    horizonCompression: clamp(finite(input.horizonCompression, 0.65), 0, 1),
+    horizonAtmosphericFade: clamp(finite(input.horizonAtmosphericFade, 0.7), 0, 1),
     shadowStrength: clamp(finite(input.shadowStrength, 0.24), 0, 1),
     highlightStrength: clamp(finite(input.highlightStrength, 0.58), 0, 1.5),
     silverLiningStrength: clamp(finite(input.silverLiningStrength, 0.08), 0, 0.5),
