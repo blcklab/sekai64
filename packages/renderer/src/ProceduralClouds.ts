@@ -6,12 +6,31 @@ export interface RendererProceduralCloudState {
   seed: number
   offset: readonly [number, number]
   evolution: number
+  detailOffset: readonly [number, number]
+  detailEvolution: number
+  macroScale: number
+  detailScale: number
+  detailStrength: number
+  edgeSoftness: number
+  warpStrength: number
+  horizonVisibility: number
+  horizonSoftness: number
+  shadowStrength: number
+  highlightStrength: number
+  silverLiningStrength: number
+  ambientColor: readonly [number, number, number]
+  shadowColor: readonly [number, number, number]
+  lightColor: readonly [number, number, number]
   sunDirection: readonly [number, number, number]
   sunIntensity: number
 }
 
-export type RendererProceduralCloudInput = Partial<Omit<RendererProceduralCloudState, 'offset' | 'sunDirection'>> & {
+export type RendererProceduralCloudInput = Partial<Omit<RendererProceduralCloudState, 'offset' | 'detailOffset' | 'ambientColor' | 'shadowColor' | 'lightColor' | 'sunDirection'>> & {
   offset?: readonly [number, number]
+  detailOffset?: readonly [number, number]
+  ambientColor?: readonly [number, number, number]
+  shadowColor?: readonly [number, number, number]
+  lightColor?: readonly [number, number, number]
   sunDirection?: readonly [number, number, number]
 }
 
@@ -24,6 +43,21 @@ export function resolveProceduralCloudState(input: RendererProceduralCloudInput 
     seed: finite(input.seed, 1),
     offset: finiteVec2(input.offset, [0, 0]),
     evolution: finite(input.evolution, 0),
+    detailOffset: finiteVec2(input.detailOffset, input.offset ?? [0, 0]),
+    detailEvolution: finite(input.detailEvolution, input.evolution ?? 0),
+    macroScale: clamp(finite(input.macroScale, 1), 0.2, 4),
+    detailScale: clamp(finite(input.detailScale, 1), 0.2, 4),
+    detailStrength: clamp(finite(input.detailStrength, 0.1), 0, 0.5),
+    edgeSoftness: clamp(finite(input.edgeSoftness, 0.09), 0.01, 0.3),
+    warpStrength: clamp(finite(input.warpStrength, 0.16), 0, 0.6),
+    horizonVisibility: clamp(finite(input.horizonVisibility, 0.62), 0, 1),
+    horizonSoftness: clamp(finite(input.horizonSoftness, 0.18), 0.01, 0.6),
+    shadowStrength: clamp(finite(input.shadowStrength, 0.24), 0, 1),
+    highlightStrength: clamp(finite(input.highlightStrength, 0.58), 0, 1.5),
+    silverLiningStrength: clamp(finite(input.silverLiningStrength, 0.08), 0, 0.5),
+    ambientColor: clampVec3(finiteVec3(input.ambientColor, [0.86, 0.9, 0.98]), 0, 4),
+    shadowColor: clampVec3(finiteVec3(input.shadowColor, [0.68, 0.74, 0.86]), 0, 4),
+    lightColor: clampVec3(finiteVec3(input.lightColor, [1.08, 1.03, 0.96]), 0, 4),
     sunDirection: normalize3(finiteVec3(input.sunDirection, [0.35, 0.72, -0.6])),
     sunIntensity: Math.max(0, finite(input.sunIntensity, 8)),
   }
@@ -93,6 +127,9 @@ function finiteVec3(value: unknown, fallback: readonly [number, number, number])
   return Array.isArray(value) && value.length === 3 && value.every((item) => typeof item === 'number' && Number.isFinite(item))
     ? [Number(value[0]), Number(value[1]), Number(value[2])]
     : fallback
+}
+function clampVec3(value: readonly [number, number, number], minimum: number, maximum: number): readonly [number, number, number] {
+  return [clamp(value[0], minimum, maximum), clamp(value[1], minimum, maximum), clamp(value[2], minimum, maximum)]
 }
 function normalize3(value: readonly [number, number, number]): readonly [number, number, number] {
   const length = Math.hypot(value[0], value[1], value[2])

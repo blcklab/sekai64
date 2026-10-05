@@ -8,35 +8,37 @@ const sources = await Promise.all([
   readFile(new URL('../packages/renderer-webgpu/src/WebGPURenderer.ts', import.meta.url), 'utf8'),
 ])
 
-test('dynamic clouds preserve macro masses and use fine noise only as bounded detail', () => {
+test('dynamic clouds preserve macro masses and keep fine noise world-tunable and bounded', () => {
   for (const source of sources) {
     assert.match(source, /cloudMacroField/)
     assert.match(source, /cloudDetailField/)
-    assert.match(source, /large\*0\.72\+medium\*0\.28/)
+    assert.match(source, /large\*0\.74\+medium\*0\.26/)
     assert.match(source, /detail-0\.5/)
-    assert.match(source, /0\.10\*detailStrength/)
+    assert.match(source, /cloudShape\.z|u_cloudShape\.z/)
     assert.doesNotMatch(source, /abs\(small\*2\.0-1\.0\)/)
   }
 })
 
-test('dynamic clouds keep the rc49 bounded horizon/detail treatment', () => {
+test('dynamic clouds retain horizon presence instead of disappearing behind a hard fade', () => {
   for (const source of sources) {
-    assert.match(source, /horizonFade/)
-    assert.match(source, /detailStrength/)
-    assert.doesNotMatch(source, /0\.72\+0\.38\/max\(0\.22/)
+    assert.match(source, /horizonBlend/)
+    assert.match(source, /horizonPresence/)
+    assert.match(source, /horizonVisibility|cloudHorizon\.y|u_cloudHorizon\.y/)
+    assert.doesNotMatch(source, /horizonFade=smoothstep\(0\.01,0\.11/)
   }
 })
 
-test('cloud lighting is derived from macro shape with restrained normals and edge-only silver lining', () => {
+test('cloud lighting stays macro-derived while shadow, highlight, and silver lining are authorable', () => {
   for (const source of sources) {
-    assert.match(source, /cloudMacroField\(base\+/)
-    assert.match(source, /gx\*1\.6/)
+    assert.match(source, /cloudMacroField\(macroBase\+/)
+    assert.match(source, /gx\*1\.45/)
     assert.match(source, /4\.0\*body\*\(1\.0-body\)/)
-    assert.match(source, /pow\(sunFacing,7\.0\)\*0\.09/)
+    assert.match(source, /pow\(sunFacing,7\.0\)/)
+    assert.match(source, /cloudLighting|u_cloudLighting/)
+    assert.match(source, /cloudHorizon\.w|u_cloudHorizon\.w/)
     assert.doesNotMatch(source, /gx\*4\.6/)
   }
 })
-
 
 test('seed texture channels are spatially coherent instead of raw per-texel noise', () => {
   const size = 128

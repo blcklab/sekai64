@@ -1,3 +1,12 @@
+## 0.8.0-rc.51 — final world-authored cloud appearance freeze
+
+- Freezes the dynamic-cloud renderer contract around world-authored controls instead of renderer-specific look tweaks.
+- Adds bounded appearance controls for macro/detail scale, detail strength, edge softness, warp, horizon presence/softness, shadow/highlight response, silver lining, and cloud light/shadow/ambient colors.
+- Adds independent detail offset/evolution so hosts can separate large cloud advection from fine breakup and avoid a single scrolling-texture feel.
+- Replaces the hard near-horizon cloud fade with configurable horizon presence plus atmospheric softening, preserving distant cloud banks without reintroducing seam/pole artifacts.
+- WebGL2 and WebGPU consume the same state and remain one background pass with deterministic seeded noise and zero cloud-domain runtime dependency.
+- This is the intended Sekai64 cloud-feature freeze: future cloud art direction should be authored through the world/runtime contract rather than shader edits.
+
 ## 0.8.0-rc.50 — cloud dome seam/pole hotfix
 
 - Fixed the rc.49 dynamic-cloud longitude seam and zenith pinwheel/wedge artifact seen during real-browser camera rotation.

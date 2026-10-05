@@ -161,7 +161,7 @@ interface ShaderUniforms {
   custom: WebGLUniformLocation | null
 }
 interface ShaderProgramState { program: WebGLProgram; uniforms: ShaderUniforms }
-interface EnvironmentBackgroundProgramState { program: WebGLProgram; inverseViewProjection: WebGLUniformLocation | null; cameraPosition: WebGLUniformLocation | null; environmentMap: WebGLUniformLocation | null; cloudNoiseMap: WebGLUniformLocation | null; params: WebGLUniformLocation | null; outputParams: WebGLUniformLocation | null; cloudParams: WebGLUniformLocation | null; cloudMotion: WebGLUniformLocation | null; cloudSun: WebGLUniformLocation | null }
+interface EnvironmentBackgroundProgramState { program: WebGLProgram; inverseViewProjection: WebGLUniformLocation | null; cameraPosition: WebGLUniformLocation | null; environmentMap: WebGLUniformLocation | null; cloudNoiseMap: WebGLUniformLocation | null; params: WebGLUniformLocation | null; outputParams: WebGLUniformLocation | null; cloudParams: WebGLUniformLocation | null; cloudMotion: WebGLUniformLocation | null; cloudSun: WebGLUniformLocation | null; cloudShape: WebGLUniformLocation | null; cloudHorizon: WebGLUniformLocation | null; cloudLighting: WebGLUniformLocation | null; cloudDetailMotion: WebGLUniformLocation | null; cloudAmbientColor: WebGLUniformLocation | null; cloudShadowColor: WebGLUniformLocation | null; cloudLightColor: WebGLUniformLocation | null }
 interface PointFieldProgramState {
   program: WebGLProgram
   model: WebGLUniformLocation | null
@@ -269,6 +269,13 @@ uniform vec4 u_outputParams;
 uniform vec4 u_cloudParams;
 uniform vec4 u_cloudMotion;
 uniform vec4 u_cloudSun;
+uniform vec4 u_cloudShape;
+uniform vec4 u_cloudHorizon;
+uniform vec4 u_cloudLighting;
+uniform vec4 u_cloudDetailMotion;
+uniform vec3 u_cloudAmbientColor;
+uniform vec3 u_cloudShadowColor;
+uniform vec3 u_cloudLightColor;
 out vec4 outColor;
 float linearChannelToSrgb(float value){return value<=0.0031308?12.92*value:1.055*pow(max(value,0.0),1.0/2.4)-0.055;}
 vec3 linearToSrgb(vec3 value){return vec3(linearChannelToSrgb(value.r),linearChannelToSrgb(value.g),linearChannelToSrgb(value.b));}
@@ -283,50 +290,54 @@ vec2 cloudDomeCoordinate(vec3 direction){
 }
 float smoothNoise(vec2 uv,int channel){vec4 n=texture(u_cloudNoiseMap,fract(uv));return channel==0?n.r:(channel==1?n.g:(channel==2?n.b:n.a));}
 float cloudMacroField(vec2 base,float evolution){
-  float warp=smoothNoise(base*0.16+vec2(evolution*0.0019,-evolution*0.0013),3);
-  vec2 w=vec2(warp-0.5)*0.16;
-  float large=smoothNoise(base*0.34+w+vec2(evolution*0.00061,evolution*0.00027),0);
-  float medium=smoothNoise(base*0.78+w*1.35+vec2(-evolution*0.00091,evolution*0.00073),1);
-  return clamp(large*0.72+medium*0.28,0.0,1.0);
+  float macroScale=max(u_cloudShape.x,0.2);
+  float warp=smoothNoise(base*(0.16*macroScale)+vec2(evolution*0.043,-evolution*0.031),3);
+  vec2 w=vec2(warp-0.5)*u_cloudShape.w;
+  float large=smoothNoise((base+vec2(evolution*0.018,evolution*0.011))*(0.34*macroScale)+w,0);
+  float medium=smoothNoise((base+vec2(-evolution*0.027,evolution*0.021))*(0.78*macroScale)+w*1.25,1);
+  return clamp(large*0.74+medium*0.26,0.0,1.0);
 }
 float cloudDetailField(vec2 base,float evolution){
-  float small=smoothNoise(base*1.85+vec2(evolution*0.00143,-evolution*0.00107),2);
-  float fine=smoothNoise(base*3.6+vec2(-evolution*0.00197,evolution*0.00161),3);
-  return clamp(small*0.76+fine*0.24,0.0,1.0);
+  float detailScale=max(u_cloudShape.y,0.2);
+  float small=smoothNoise((base+vec2(evolution*0.081,-evolution*0.063))*(1.85*detailScale),2);
+  float fine=smoothNoise((base+vec2(-evolution*0.127,evolution*0.097))*(3.6*detailScale),3);
+  return clamp(small*0.78+fine*0.22,0.0,1.0);
 }
 vec4 proceduralCloud(vec3 direction){
   if(u_cloudParams.x<0.5||u_cloudParams.y<=0.0||direction.y<=0.0)return vec4(0.0);
   float vertical=clamp(direction.y,0.0,1.0);
-  vec2 base=cloudDomeCoordinate(direction)*u_cloudParams.w+u_cloudMotion.xy;
-  float macro=cloudMacroField(base,u_cloudMotion.z);
-  float detail=cloudDetailField(base,u_cloudMotion.z);
-  float detailStrength=smoothstep(0.08,0.34,vertical);
-  float field=clamp(macro+(detail-0.5)*(0.10*detailStrength),0.0,1.0);
+  vec2 domain=cloudDomeCoordinate(direction)*u_cloudParams.w;
+  vec2 macroBase=domain+u_cloudMotion.xy;
+  vec2 detailBase=domain+u_cloudDetailMotion.xy;
+  float macro=cloudMacroField(macroBase,u_cloudMotion.z);
+  float detail=cloudDetailField(detailBase,u_cloudDetailMotion.z);
+  float horizonBlend=smoothstep(0.0,max(u_cloudHorizon.z,0.01),vertical);
+  float detailAtHorizon=mix(0.35,1.0,horizonBlend);
+  float field=clamp(macro+(detail-0.5)*(u_cloudShape.z*detailAtHorizon),0.0,1.0);
   float threshold=mix(0.74,0.38,u_cloudParams.y);
-  float body=smoothstep(threshold-0.075,threshold+0.085,field);
-  float horizonFade=smoothstep(0.01,0.11,vertical);
-  float amount=clamp(body*min(u_cloudParams.z,1.35)*horizonFade,0.0,1.0);
+  float softness=max(u_cloudHorizon.x,0.01);
+  float body=smoothstep(threshold-softness,threshold+softness,field);
+  float horizonPresence=mix(u_cloudHorizon.y,1.0,horizonBlend);
+  float amount=clamp(body*min(u_cloudParams.z,1.5)*horizonPresence,0.0,1.0);
   if(amount<=0.0001)return vec4(0.0);
-  float eps=0.055;
-  float gx=cloudMacroField(base+vec2(eps,0.0),u_cloudMotion.z)-cloudMacroField(base-vec2(eps,0.0),u_cloudMotion.z);
-  float gz=cloudMacroField(base+vec2(0.0,eps),u_cloudMotion.z)-cloudMacroField(base-vec2(0.0,eps),u_cloudMotion.z);
-  vec3 pseudoNormal=normalize(vec3(-gx*1.6,1.0,-gz*1.6));
+  float eps=0.055/max(u_cloudShape.x,0.2);
+  float gx=cloudMacroField(macroBase+vec2(eps,0.0),u_cloudMotion.z)-cloudMacroField(macroBase-vec2(eps,0.0),u_cloudMotion.z);
+  float gz=cloudMacroField(macroBase+vec2(0.0,eps),u_cloudMotion.z)-cloudMacroField(macroBase-vec2(0.0,eps),u_cloudMotion.z);
+  vec3 pseudoNormal=normalize(vec3(-gx*1.45,1.0,-gz*1.45));
   vec3 sunDirection=normalize(u_cloudSun.xyz);
   float diffuse=clamp(dot(pseudoNormal,sunDirection),0.0,1.0);
   float sunFacing=clamp(dot(direction,sunDirection),0.0,1.0);
-  float interior=smoothstep(0.45,0.9,body);
+  float interior=smoothstep(0.42,0.92,body);
   float edge=clamp(4.0*body*(1.0-body),0.0,1.0);
-  vec3 coolShadow=vec3(0.68,0.74,0.86);
-  vec3 warmLight=vec3(1.08,1.03,0.96);
-  vec3 ambientCloud=vec3(0.86,0.9,0.98);
   float sunStrength=clamp(u_cloudSun.w/8.0,0.0,1.0);
-  float lightMix=0.16+diffuse*0.54*sunStrength;
-  vec3 lit=mix(coolShadow,warmLight,lightMix);
-  vec3 cloudColor=mix(ambientCloud,lit,0.58);
-  float silverLining=edge*pow(sunFacing,7.0)*0.09*sunStrength;
-  float baseShade=1.0-interior*(0.08+(1.0-vertical)*0.07);
-  cloudColor*=baseShade;
+  float litAmount=clamp((0.12+diffuse*u_cloudLighting.y)*sunStrength,0.0,1.0);
+  vec3 cloudColor=mix(u_cloudAmbientColor,u_cloudLightColor,litAmount);
+  float shadowAmount=interior*(1.0-diffuse)*u_cloudLighting.x;
+  cloudColor=mix(cloudColor,u_cloudShadowColor,clamp(shadowAmount,0.0,1.0));
+  float silverLining=edge*pow(sunFacing,7.0)*u_cloudHorizon.w*sunStrength;
   cloudColor+=vec3(silverLining,silverLining*0.92,silverLining*0.76);
+  float distanceHaze=(1.0-horizonBlend)*0.42;
+  cloudColor=mix(cloudColor,u_cloudAmbientColor,distanceHaze);
   return vec4(cloudColor,amount);
 }
 void main(){
@@ -1389,6 +1400,13 @@ export class WebGL2Renderer implements RecoverableRenderer {
     gl.uniform4f(program.cloudParams, clouds.enabled ? 1 : 0, clouds.coverage, clouds.density, clouds.scale)
     gl.uniform4f(program.cloudMotion, clouds.offset[0], clouds.offset[1], clouds.evolution, 0)
     gl.uniform4f(program.cloudSun, clouds.sunDirection[0], clouds.sunDirection[1], clouds.sunDirection[2], clouds.sunIntensity)
+    gl.uniform4f(program.cloudShape, clouds.macroScale, clouds.detailScale, clouds.detailStrength, clouds.warpStrength)
+    gl.uniform4f(program.cloudHorizon, clouds.edgeSoftness, clouds.horizonVisibility, clouds.horizonSoftness, clouds.silverLiningStrength)
+    gl.uniform4f(program.cloudLighting, clouds.shadowStrength, clouds.highlightStrength, 0, 0)
+    gl.uniform4f(program.cloudDetailMotion, clouds.detailOffset[0], clouds.detailOffset[1], clouds.detailEvolution, 0)
+    gl.uniform3f(program.cloudAmbientColor, clouds.ambientColor[0], clouds.ambientColor[1], clouds.ambientColor[2])
+    gl.uniform3f(program.cloudShadowColor, clouds.shadowColor[0], clouds.shadowColor[1], clouds.shadowColor[2])
+    gl.uniform3f(program.cloudLightColor, clouds.lightColor[0], clouds.lightColor[1], clouds.lightColor[2])
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, texture.texture)
     gl.uniform1i(program.environmentMap, 0)
@@ -2296,6 +2314,13 @@ function createEnvironmentBackgroundProgramState(gl: WebGL2RenderingContext): En
     cloudParams: gl.getUniformLocation(program, 'u_cloudParams'),
     cloudMotion: gl.getUniformLocation(program, 'u_cloudMotion'),
     cloudSun: gl.getUniformLocation(program, 'u_cloudSun'),
+    cloudShape: gl.getUniformLocation(program, 'u_cloudShape'),
+    cloudHorizon: gl.getUniformLocation(program, 'u_cloudHorizon'),
+    cloudLighting: gl.getUniformLocation(program, 'u_cloudLighting'),
+    cloudDetailMotion: gl.getUniformLocation(program, 'u_cloudDetailMotion'),
+    cloudAmbientColor: gl.getUniformLocation(program, 'u_cloudAmbientColor'),
+    cloudShadowColor: gl.getUniformLocation(program, 'u_cloudShadowColor'),
+    cloudLightColor: gl.getUniformLocation(program, 'u_cloudLightColor'),
   }
 }
 

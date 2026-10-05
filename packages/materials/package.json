@@ -1,6 +1,6 @@
 {
   "name": "@sekai64-internal/materials",
-  "version": "0.8.0-rc.50",
+  "version": "0.8.0-rc.51",
   "description": "Private Sekai64 workspace module: materials. Bundled into @blcklab/sekai64.",
   "type": "module",
   "sideEffects": false,
@@ -24,8 +24,8 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@sekai64-internal/core": "0.8.0-rc.50",
-    "@sekai64-internal/math": "0.8.0-rc.50"
+    "@sekai64-internal/core": "0.8.0-rc.51",
+    "@sekai64-internal/math": "0.8.0-rc.51"
   },
   "license": "MIT",
   "author": "blcklab",
