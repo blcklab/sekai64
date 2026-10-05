@@ -4,7 +4,7 @@ A modular WebGPU/WebGL2 TypeScript renderer for interactive 3D applications, glT
 
 > `0.8.0-rc.39` is a release candidate and is published under the `next` npm dist-tag.
 
-## Installation
+## Installation 
 
 ```bash
 npm install @blcklab/sekai64@next
