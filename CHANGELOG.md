@@ -1,3 +1,12 @@
+## 0.8.0-rc.49 — dynamic cloud visual hotfix
+
+- Fixed the rc.48 dynamic cloud overlay rendering raw high-frequency contour/etched noise instead of broad cloud masses.
+- Replaced raw per-texel seeded randomness with deterministic periodic coarse value-noise channels for macro, medium, detail, and warp structure.
+- Rebalanced the background shader so macro structure owns the cloud body, fine noise only perturbs bounded detail, and pseudo-normal lighting derives from the macro field.
+- Replaced horizon-amplified planar sampling with the existing spherical environment UV mapping and attenuated fine detail near the horizon to avoid compressed contour bands.
+- Reduced pseudo-normal and silver-lining contrast while preserving warm sun-facing response, cool shadows, runtime offset/evolution, dynamic coverage/density, and stable per-session seed identity.
+- No renderer API, Anyo contract, World schema, astronomy/provider boundary, or runtime dependency changed.
+
 ## 0.8.0-rc.48 — dynamic unique procedural clouds
 
 - Added a lightweight renderer-owned procedural-cloud overlay for environment backgrounds with runtime `coverage`, `density`, `scale`, `seed`, `offset`, and `evolution` state.

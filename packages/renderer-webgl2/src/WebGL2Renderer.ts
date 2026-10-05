@@ -275,47 +275,52 @@ vec3 linearToSrgb(vec3 value){return vec3(linearChannelToSrgb(value.r),linearCha
 vec3 toneMap(vec3 color,float mode){color=max(color,vec3(0.0));if(mode<0.5)return color;if(mode<1.5)return color/(vec3(1.0)+color);if(mode>2.5)return color/(vec3(1.0)+max(color,vec3(0.0))*0.6);return clamp((color*(2.51*color+vec3(0.03)))/(color*(2.43*color+vec3(0.59))+vec3(0.14)),0.0,1.0);}
 vec2 environmentUv(vec3 direction){vec3 d=normalize(direction);float phi=atan(d.z,d.x)+u_params.y;return vec2(fract(phi/(2.0*PI)+0.5),acos(clamp(d.y,-1.0,1.0))/PI);}
 float smoothNoise(vec2 uv,int channel){vec4 n=texture(u_cloudNoiseMap,fract(uv));return channel==0?n.r:(channel==1?n.g:(channel==2?n.b:n.a));}
-float cloudField(vec2 base,float evolution){
-  float warp=smoothNoise(base*0.18+vec2(evolution*0.0027,-evolution*0.0019),3);
-  vec2 w=vec2(warp-0.5)*0.22;
-  float large=smoothNoise(base*0.36+w+vec2(evolution*0.00073,evolution*0.00031),0);
-  float medium=smoothNoise(base*0.92+w*1.7+vec2(-evolution*0.00117,evolution*0.00089),1);
-  float small=smoothNoise(base*2.35+w*2.6+vec2(evolution*0.00191,-evolution*0.00143),2);
-  float erosion=abs(small*2.0-1.0);
-  return clamp(large*0.52+medium*0.36+small*0.18-erosion*0.06,0.0,1.0);
+float cloudMacroField(vec2 base,float evolution){
+  float warp=smoothNoise(base*0.16+vec2(evolution*0.0019,-evolution*0.0013),3);
+  vec2 w=vec2(warp-0.5)*0.16;
+  float large=smoothNoise(base*0.34+w+vec2(evolution*0.00061,evolution*0.00027),0);
+  float medium=smoothNoise(base*0.78+w*1.35+vec2(-evolution*0.00091,evolution*0.00073),1);
+  return clamp(large*0.72+medium*0.28,0.0,1.0);
+}
+float cloudDetailField(vec2 base,float evolution){
+  float small=smoothNoise(base*1.85+vec2(evolution*0.00143,-evolution*0.00107),2);
+  float fine=smoothNoise(base*3.6+vec2(-evolution*0.00197,evolution*0.00161),3);
+  return clamp(small*0.76+fine*0.24,0.0,1.0);
 }
 vec4 proceduralCloud(vec3 direction){
   if(u_cloudParams.x<0.5||u_cloudParams.y<=0.0||direction.y<=0.0)return vec4(0.0);
   float vertical=clamp(direction.y,0.0,1.0);
-  float perspective=0.72+0.38/max(0.22,vertical+0.18);
-  float c=cos(u_params.y),s=sin(u_params.y);
-  vec2 xz=vec2(c*direction.x-s*direction.z,s*direction.x+c*direction.z);
-  vec2 base=xz*u_cloudParams.w*perspective+u_cloudMotion.xy;
-  float field=cloudField(base,u_cloudMotion.z);
-  float threshold=mix(0.79,0.37,u_cloudParams.y);
-  float body=smoothstep(threshold-0.045,threshold+0.12,field);
-  float horizonFade=smoothstep(0.015,0.14,vertical);
-  float amount=clamp(body*u_cloudParams.z*horizonFade,0.0,1.0);
+  vec2 skyUv=environmentUv(direction);
+  vec2 base=vec2(skyUv.x*1.35,skyUv.y*2.0)*u_cloudParams.w+u_cloudMotion.xy;
+  float macro=cloudMacroField(base,u_cloudMotion.z);
+  float detail=cloudDetailField(base,u_cloudMotion.z);
+  float detailStrength=smoothstep(0.08,0.34,vertical);
+  float field=clamp(macro+(detail-0.5)*(0.10*detailStrength),0.0,1.0);
+  float threshold=mix(0.74,0.38,u_cloudParams.y);
+  float body=smoothstep(threshold-0.075,threshold+0.085,field);
+  float horizonFade=smoothstep(0.01,0.11,vertical);
+  float amount=clamp(body*min(u_cloudParams.z,1.35)*horizonFade,0.0,1.0);
   if(amount<=0.0001)return vec4(0.0);
-  float eps=0.045;
-  float gx=cloudField(base+vec2(eps,0.0),u_cloudMotion.z)-cloudField(base-vec2(eps,0.0),u_cloudMotion.z);
-  float gz=cloudField(base+vec2(0.0,eps),u_cloudMotion.z)-cloudField(base-vec2(0.0,eps),u_cloudMotion.z);
-  vec3 pseudoNormal=normalize(vec3(-gx*4.6,1.0,-gz*4.6));
+  float eps=0.055;
+  float gx=cloudMacroField(base+vec2(eps,0.0),u_cloudMotion.z)-cloudMacroField(base-vec2(eps,0.0),u_cloudMotion.z);
+  float gz=cloudMacroField(base+vec2(0.0,eps),u_cloudMotion.z)-cloudMacroField(base-vec2(0.0,eps),u_cloudMotion.z);
+  vec3 pseudoNormal=normalize(vec3(-gx*1.6,1.0,-gz*1.6));
   vec3 sunDirection=normalize(u_cloudSun.xyz);
   float diffuse=clamp(dot(pseudoNormal,sunDirection),0.0,1.0);
   float sunFacing=clamp(dot(direction,sunDirection),0.0,1.0);
-  float interior=smoothstep(threshold+0.035,threshold+0.2,field);
-  vec3 coolShadow=vec3(0.64,0.72,0.92);
-  vec3 warmLight=vec3(1.34,1.22,1.08);
-  vec3 ambientCloud=vec3(0.9,0.96,1.08);
+  float interior=smoothstep(0.45,0.9,body);
+  float edge=clamp(4.0*body*(1.0-body),0.0,1.0);
+  vec3 coolShadow=vec3(0.68,0.74,0.86);
+  vec3 warmLight=vec3(1.08,1.03,0.96);
+  vec3 ambientCloud=vec3(0.86,0.9,0.98);
   float sunStrength=clamp(u_cloudSun.w/8.0,0.0,1.0);
-  float lightMix=0.1+diffuse*0.9*sunStrength;
+  float lightMix=0.16+diffuse*0.54*sunStrength;
   vec3 lit=mix(coolShadow,warmLight,lightMix);
-  vec3 cloudColor=mix(ambientCloud,lit,0.82);
-  float silverLining=(1.0-interior)*pow(sunFacing,5.0)*0.26*sunStrength;
-  float baseShade=1.0-interior*(0.13+(1.0-vertical)*0.11);
+  vec3 cloudColor=mix(ambientCloud,lit,0.58);
+  float silverLining=edge*pow(sunFacing,7.0)*0.09*sunStrength;
+  float baseShade=1.0-interior*(0.08+(1.0-vertical)*0.07);
   cloudColor*=baseShade;
-  cloudColor+=vec3(silverLining,silverLining*0.92,silverLining*0.72);
+  cloudColor+=vec3(silverLining,silverLining*0.92,silverLining*0.76);
   return vec4(cloudColor,amount);
 }
 void main(){

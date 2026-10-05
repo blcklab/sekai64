@@ -30,26 +30,46 @@ export function resolveProceduralCloudState(input: RendererProceduralCloudInput 
 }
 
 /**
- * Creates deterministic RGBA value-noise used by the renderer background cloud layer.
- * The four independent channels are intentionally domain-neutral; cloud shape comes from
- * how renderers combine them at multiple scales. The texture is repeat-safe when sampled
- * with repeat addressing and linear filtering, so runtime offsets can drift indefinitely.
+ * Creates deterministic, periodic RGBA value-noise used by the renderer background cloud layer.
+ * Each channel has a deliberately different coarse lattice frequency so the renderer receives
+ * spatially coherent macro/medium/detail/warp fields instead of raw per-texel randomness.
+ * The texture is repeat-safe, so runtime offsets can drift indefinitely without visible seams.
  */
 export function createProceduralCloudNoise(seed: number, size = 128): Uint8Array {
   const resolvedSize = Math.max(16, Math.min(512, Math.round(size)))
   const output = new Uint8Array(resolvedSize * resolvedSize * 4)
   const base = Math.trunc(finite(seed, 1) * 1_000_003)
+  const cells = [4, 8, 16, 6] as const
+  const offsets = [101, 211, 307, 401] as const
   for (let y = 0; y < resolvedSize; y += 1) {
+    const v = y / resolvedSize
     for (let x = 0; x < resolvedSize; x += 1) {
+      const u = x / resolvedSize
       const target = (y * resolvedSize + x) * 4
-      output[target] = hashByte(x, y, base + 101)
-      output[target + 1] = hashByte(x, y, base + 211)
-      output[target + 2] = hashByte(x, y, base + 307)
-      output[target + 3] = hashByte(x, y, base + 401)
+      for (let channel = 0; channel < 4; channel += 1) {
+        output[target + channel] = Math.round(periodicValueNoise(u, v, cells[channel]!, base + offsets[channel]!) * 255)
+      }
     }
   }
   return output
 }
+
+function periodicValueNoise(u: number, v: number, cells: number, seed: number): number {
+  const gx = u * cells
+  const gy = v * cells
+  const x0 = Math.floor(gx)
+  const y0 = Math.floor(gy)
+  const tx = fade(gx - x0)
+  const ty = fade(gy - y0)
+  const sample = (x: number, y: number): number => hashByte(mod(x, cells), mod(y, cells), seed) / 255
+  const top = mix(sample(x0, y0), sample(x0 + 1, y0), tx)
+  const bottom = mix(sample(x0, y0 + 1), sample(x0 + 1, y0 + 1), tx)
+  return mix(top, bottom, ty)
+}
+
+function fade(value: number): number { return value * value * (3 - 2 * value) }
+function mix(a: number, b: number, t: number): number { return a + (b - a) * t }
+function mod(value: number, modulus: number): number { return ((value % modulus) + modulus) % modulus }
 
 function hashByte(x: number, y: number, seed: number): number {
   let value = (Math.imul(x + 1, 0x45d9f3b) ^ Math.imul(y + 1, 0x119de1f3) ^ seed) >>> 0

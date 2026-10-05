@@ -1,6 +1,6 @@
 {
   "name": "@sekai64/example-visual-parity",
-  "version": "0.8.0-rc.48",
+  "version": "0.8.0-rc.49",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@blcklab/sekai64": "0.8.0-rc.48"
+    "@blcklab/sekai64": "0.8.0-rc.49"
   },
   "devDependencies": {
     "vite": "^8.1.0"
