@@ -274,10 +274,15 @@ struct VertexOutput {
   return output;
 }
 fn uvSet(input:VertexOutput,index:f32)->vec2<f32>{let uv=select(input.uv,input.uv1,index>0.5);let scaled=uv*uniforms.textureTransform.xy;let c=cos(uniforms.textureRotation.x);let sn=sin(uniforms.textureRotation.x);return vec2<f32>(c*scaled.x-sn*scaled.y,sn*scaled.x+c*scaled.y)+uniforms.textureTransform.zw;}
+fn fallbackSurfaceBasis(n:vec3<f32>)->mat3x3<f32>{
+  let referenceAxis=select(vec3<f32>(0.0,1.0,0.0),vec3<f32>(1.0,0.0,0.0),abs(n.y)>0.999);
+  let t=normalize(cross(referenceAxis,n));let b=normalize(cross(n,t));return mat3x3<f32>(t,b,n);
+}
 fn surfaceBasis(input:VertexOutput,basisUv:vec2<f32>,n:vec3<f32>)->mat3x3<f32>{
   let dp1=dpdx(input.worldPosition);let dp2=dpdy(input.worldPosition);let duv1=dpdx(basisUv);let duv2=dpdy(basisUv);var t:vec3<f32>;var b:vec3<f32>;
   if(length(input.tangent.xyz)>0.0001){t=normalize(input.tangent.xyz-n*dot(n,input.tangent.xyz));b=normalize(cross(n,t))*input.tangent.w;}
-  else{let dp2perp=cross(dp2,n);let dp1perp=cross(n,dp1);t=dp2perp*duv1.x+dp1perp*duv2.x;b=dp2perp*duv1.y+dp1perp*duv2.y;let basisScale=max(dot(t,t),dot(b,b));if(basisScale>0.0000001){let invmax=inverseSqrt(basisScale);t=t*invmax;b=b*invmax;}else{t=normalize(vec3<f32>(n.z,0.0,-n.x));b=cross(n,t);}}
+  else{let dp2perp=cross(dp2,n);let dp1perp=cross(n,dp1);t=dp2perp*duv1.x+dp1perp*duv2.x;b=dp2perp*duv1.y+dp1perp*duv2.y;let basisScale=max(dot(t,t),dot(b,b));if(basisScale>0.0000001){let invmax=inverseSqrt(basisScale);t=t*invmax;b=b*invmax;}else{return fallbackSurfaceBasis(n);}}
+  let tangentLengthSquared=dot(t,t);let bitangentLengthSquared=dot(b,b);if(!(tangentLengthSquared>0.0000001)||!(bitangentLengthSquared>0.0000001)){return fallbackSurfaceBasis(n);}
   return mat3x3<f32>(t,b,n);
 }
 fn surfaceUv(input:VertexOutput,index:f32,frontFacing:bool)->vec2<f32>{
@@ -349,7 +354,9 @@ fn surfaceNormal(input:VertexOutput,frontFacing:bool)->vec3<f32>{
     detailNormal.x=detailNormal.x*uniforms.detailParams.y;detailNormal.y=detailNormal.y*uniforms.detailParams.y;
     mapNormal=normalize(vec3<f32>(mapNormal.xy+detailNormal.xy,mapNormal.z*max(detailNormal.z,0.0001)));
   }
-  return waterMacroNormal(input,normalize(surfaceBasis(input,basisUv,n)*mapNormal));
+  let mappedNormal=surfaceBasis(input,basisUv,n)*mapNormal;let mappedLengthSquared=dot(mappedNormal,mappedNormal);
+  if(!(mappedLengthSquared>0.0000001)){return waterMacroNormal(input,n);}
+  return waterMacroNormal(input,mappedNormal*inverseSqrt(mappedLengthSquared));
 }
 fn distributionGGX(n:vec3<f32>,h:vec3<f32>,roughness:f32)->f32{let a=roughness*roughness;let a2=a*a;let ndoth=max(dot(n,h),0.0);let denom=ndoth*ndoth*(a2-1.0)+1.0;return a2/max(PI*denom*denom,0.000001);}
 fn geometrySchlickGGX(ndotv:f32,roughness:f32)->f32{let r=roughness+1.0;let k=(r*r)/8.0;return ndotv/max(ndotv*(1.0-k)+k,0.000001);}

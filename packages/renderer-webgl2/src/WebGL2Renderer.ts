@@ -540,10 +540,15 @@ vec2 uvSet(int index){
   float c=cos(u_textureRotation);float sn=sin(u_textureRotation);
   return vec2(c*scaled.x-sn*scaled.y,sn*scaled.x+c*scaled.y)+u_textureTransform.zw;
 }
+mat3 fallbackSurfaceBasis(vec3 n){
+  vec3 referenceAxis=abs(n.y)>0.999?vec3(1.0,0.0,0.0):vec3(0.0,1.0,0.0);
+  vec3 t=normalize(cross(referenceAxis,n));vec3 b=normalize(cross(n,t));return mat3(t,b,n);
+}
 mat3 surfaceBasis(vec2 basisUv,vec3 n){
   vec3 dp1=dFdx(v_worldPosition);vec3 dp2=dFdy(v_worldPosition);vec2 duv1=dFdx(basisUv);vec2 duv2=dFdy(basisUv);vec3 t;vec3 b;
   if(length(v_tangent.xyz)>0.0001){t=normalize(v_tangent.xyz-n*dot(n,v_tangent.xyz));b=normalize(cross(n,t))*v_tangent.w;}
-  else{vec3 dp2perp=cross(dp2,n);vec3 dp1perp=cross(n,dp1);t=dp2perp*duv1.x+dp1perp*duv2.x;b=dp2perp*duv1.y+dp1perp*duv2.y;float basisScale=max(dot(t,t),dot(b,b));if(basisScale>0.0000001){float invmax=inversesqrt(basisScale);t*=invmax;b*=invmax;}else{t=normalize(vec3(n.z,0.0,-n.x));b=cross(n,t);}}
+  else{vec3 dp2perp=cross(dp2,n);vec3 dp1perp=cross(n,dp1);t=dp2perp*duv1.x+dp1perp*duv2.x;b=dp2perp*duv1.y+dp1perp*duv2.y;float basisScale=max(dot(t,t),dot(b,b));if(basisScale>0.0000001){float invmax=inversesqrt(basisScale);t*=invmax;b*=invmax;}else{return fallbackSurfaceBasis(n);}}
+  float tangentLengthSquared=dot(t,t);float bitangentLengthSquared=dot(b,b);if(!(tangentLengthSquared>0.0000001)||!(bitangentLengthSquared>0.0000001))return fallbackSurfaceBasis(n);
   return mat3(t,b,n);
 }
 vec2 surfaceUv(int index){
@@ -660,7 +665,9 @@ vec3 surfaceNormal(){
     detailNormal.xy*=u_detailParams.y;
     mapNormal=normalize(vec3(mapNormal.xy+detailNormal.xy,mapNormal.z*max(detailNormal.z,0.0001)));
   }
-  return waterMacroNormal(normalize(surfaceBasis(basisUv,n)*mapNormal));
+  vec3 mappedNormal=surfaceBasis(basisUv,n)*mapNormal;float mappedLengthSquared=dot(mappedNormal,mappedNormal);
+  if(!(mappedLengthSquared>0.0000001))return waterMacroNormal(n);
+  return waterMacroNormal(mappedNormal*inversesqrt(mappedLengthSquared));
 }
 float distributionGGX(vec3 n,vec3 h,float roughness){
   float a=roughness*roughness;

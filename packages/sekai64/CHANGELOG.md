@@ -1,3 +1,11 @@
+## 0.8.0-rc.55 — WebGPU VRM/MToon missing-tangent normal stability
+
+- Harden derivative tangent-basis reconstruction used by glTF/VRM normal maps when authored `TANGENT` attributes are absent.
+- Replace the pole-degenerate fallback tangent with an axis-selected orthonormal basis so near-vertical normals cannot normalize a zero vector.
+- Reject degenerate/non-finite mapped normal length through a geometry-normal fallback before lighting, preventing valid MToon skin from collapsing to black on WebGPU.
+- Apply the same safety structure to WebGL2 to preserve backend parity while keeping authored tangents, normal-map strength, MToon shading, and public APIs unchanged.
+- Add regression assertions for robust missing-tangent fallback and mapped-normal guards in both shader backends.
+
 ## 0.8.0-rc.54 — WebGPU procedural-cloud WGSL reserved-keyword hotfix
 
 - Fix WebGPU environment-background shader compilation by renaming the rc.53 local cloud variable `macro`, which is a reserved WGSL keyword, to `macroField`.
