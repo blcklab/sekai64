@@ -1,6 +1,6 @@
 {
   "name": "@blcklab/sekai64",
-  "version": "0.8.0-rc.55",
+  "version": "0.8.0-rc.56",
   "description": "Modular WebGPU/WebGL2 TypeScript renderer with optional animation, streaming, HDR environments, large-scene tools, recovery, and WebXR.",
   "type": "module",
   "sideEffects": false,

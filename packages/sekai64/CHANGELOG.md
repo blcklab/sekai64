@@ -1,3 +1,11 @@
+## 0.8.0-rc.56 — WebGPU VRM/MToon parity fix
+
+- Fix the real-hardware WebGPU VRM black-skin regression while preserving the accepted WebGL2 appearance.
+- Correct missing-`TANGENT` normal-map derivative reconstruction parity by compensating WebGPU fragment-derivative handedness only in the derivative fallback path; authored glTF tangents remain untouched.
+- Correct WebGPU MToon shade-multiply texture sampling to use the authored shade texture coordinate packed in `textureFlags3.z`, matching WebGL2, instead of the unrelated `textureCoords.w` alpha-to-coverage slot.
+- Keep MToon parameters, normal-map strength, material APIs, lighting, Anyo, Player, World Loader, and avatar assets unchanged.
+- Full package validation passed 85/85 tests, and the user's exact VRM was subsequently confirmed fixed on real WebGPU hardware.
+
 ## 0.8.0-rc.55 — WebGPU VRM/MToon missing-tangent normal stability
 
 - Harden derivative tangent-basis reconstruction used by glTF/VRM normal maps when authored `TANGENT` attributes are absent.
